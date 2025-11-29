@@ -1,4 +1,4 @@
-<!-- Strategic Dominion: Cyprus Wars - v1.3.0 -->
+<!-- Strategic Dominion: Cyprus Wars - v1.4.0 -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -296,6 +296,10 @@
                 <h3 class="medieval-font">Profile</h3>
                 <label>Name</label>
                 <input type="text" id="player-name" value="Commander">
+                <br><br>
+                <button id="resume-btn" class="hidden" onclick="gameApp.loadFromLocal()" style="background: #ebcb8b; color: #2e3440;">RESUME CAMPAIGN</button>
+                <input type="file" id="save-upload" accept=".json" onchange="gameApp.loadGame(this)" style="display:none;">
+                <button onclick="document.getElementById('save-upload').click()" class="secondary" style="margin-top: 10px; font-size: 0.8rem;">Load Save File</button>
             </div>
             
             <div style="display: flex; flex-direction: column; justify-content: center;">
@@ -402,7 +406,10 @@
                 </div>
             </div>
             
-            <button class="secondary" style="margin-top: 20px;" onclick="gameApp.toggleDiplomacy()">Close</button>
+            <div style="margin-top: 20px;">
+                <button onclick="gameApp.saveGame()">Save Game (Download)</button>
+                <button class="secondary" style="margin-top: 10px;" onclick="gameApp.toggleDiplomacy()">Close</button>
+            </div>
         </div>
     </div>
     
@@ -639,6 +646,10 @@ class GameEngine {
 
         player.gold += Math.floor(income);
         state.logs.unshift(`Turn ${state.turn}: ${player.name}'s turn. Income: ${Math.floor(income)}`);
+        
+        // Auto-save at start of turn
+        gameApp.saveLocal();
+        
         return state;
     }
 }
@@ -714,6 +725,10 @@ const gameApp = {
             this.peerId = id;
             document.getElementById('my-peer-id').innerText = id;
             document.getElementById('loading-overlay').classList.add('hidden');
+            
+            if(localStorage.getItem('cw_save')) {
+                document.getElementById('resume-btn').classList.remove('hidden');
+            }
         });
         this.peer.on('connection', (c) => {
             this.setupConnection(c);
@@ -1124,6 +1139,84 @@ const gameApp = {
         }
         input.value = '';
     },
+    
+    // SAVE & LOAD SYSTEM
+    saveLocal: function() {
+        if(!this.gameState) return;
+        localStorage.setItem('cw_save', JSON.stringify({
+            state: this.gameState,
+            slots: this.lobbySlots,
+            myId: this.peerId
+        }));
+        console.log("Game auto-saved locally.");
+    },
+    
+    loadFromLocal: function() {
+        const data = localStorage.getItem('cw_save');
+        if(data) {
+            this.isHost = true; // Loading implies hosting
+            const parsed = JSON.parse(data);
+            this.gameState = parsed.state;
+            this.lobbySlots = parsed.slots;
+            // Update my ID in slots to current Peer ID
+            const oldId = parsed.myId;
+            this.lobbySlots.forEach(s => {
+                if(s.id === oldId) s.id = this.peerId;
+            });
+            this.gameState.players.forEach(p => {
+                if(p.id === oldId) p.id = this.peerId;
+            });
+            
+            this.broadcast({ type: 'SYNC_STATE', state: this.gameState });
+            this.switchView('GAME');
+            this.resizeCanvas();
+            this.renderGame();
+            this.updateHUD();
+        }
+    },
+    
+    saveGame: function() {
+        if(!this.gameState) return;
+        const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify({
+            state: this.gameState,
+            slots: this.lobbySlots
+        }));
+        const downloadAnchorNode = document.createElement('a');
+        downloadAnchorNode.setAttribute("href", dataStr);
+        downloadAnchorNode.setAttribute("download", "cyprus_wars_save.json");
+        document.body.appendChild(downloadAnchorNode);
+        downloadAnchorNode.click();
+        downloadAnchorNode.remove();
+    },
+    
+    loadGame: function(input) {
+        const file = input.files[0];
+        if(!file) return;
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            const parsed = JSON.parse(e.target.result);
+            this.isHost = true;
+            this.gameState = parsed.state;
+            this.lobbySlots = parsed.slots;
+            // Assuming single player resume or host resume, we map slot 0 to self usually
+            // For simplicity, we map the first HUMAN slot to this peer
+            const mySlot = this.lobbySlots.find(s => s.type === 'HUMAN');
+            if(mySlot) {
+                const oldId = mySlot.id;
+                mySlot.id = this.peerId;
+                this.gameState.players.forEach(p => {
+                    if(p.id === oldId) p.id = this.peerId;
+                });
+            }
+            
+            this.broadcast({ type: 'SYNC_STATE', state: this.gameState });
+            this.switchView('GAME');
+            this.resizeCanvas();
+            this.renderGame();
+            this.updateHUD();
+        };
+        reader.readAsText(file);
+    },
 
     updateHUD: function() {
         if (!this.gameState) return;
@@ -1282,14 +1375,6 @@ const gameApp = {
             grad.addColorStop(0, '#4c566a');
             grad.addColorStop(1, '#2e3440');
             ctx.fillStyle = grad;
-        }
-        
-        // Owner Overlay (Color Coding)
-        if (tile.ownerId && tile.terrain === TERRAIN.LAND) {
-             const owner = this.gameState.players.find(p => p.id === tile.ownerId);
-             // We can't easily mix hex without parsing, so we use a second fill with alpha
-             // But canvas paths are cleared. We must blend manually or draw over.
-             // Draw base first
         }
         
         ctx.beginPath();
