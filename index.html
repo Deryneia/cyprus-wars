@@ -1,0 +1,1220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Strategic Dominion: Cyprus Wars</title>
+    <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700&family=Lato:wght@400;700&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+    <style>
+        :root {
+            --bg-dark: #242933;
+            --text-main: #eceff4;
+            --text-gold: #ebcb8b;
+            --ocean-deep: #2e3440;
+            --ocean-coast: #4c566a;
+            --land: #a3be8c;
+            --mountain: #434c5e;
+            --glass-bg: rgba(0, 0, 0, 0.6);
+            --glass-border: rgba(255, 255, 255, 0.1);
+        }
+
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #000;
+            font-family: 'Lato', sans-serif;
+            color: var(--text-main);
+            user-select: none;
+        }
+
+        h1, h2, h3, .medieval-font {
+            font-family: 'Cinzel', serif;
+        }
+
+        /* Views */
+        .view {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: none;
+            flex-direction: column;
+        }
+        
+        .view.active {
+            display: flex;
+        }
+
+        /* Menu View */
+        #menu-view {
+            background: radial-gradient(circle at 50% 50%, #2e3440 0%, #1a1e26 100%);
+            align-items: center;
+            justify-content: center;
+        }
+
+        .menu-card {
+            background: rgba(30, 35, 45, 0.9);
+            backdrop-filter: blur(10px);
+            padding: 40px;
+            border-radius: 16px;
+            border: 1px solid var(--glass-border);
+            box-shadow: 0 20px 50px rgba(0,0,0,0.5);
+            max-width: 600px;
+            width: 90%;
+            text-align: center;
+        }
+
+        .title-gradient {
+            background: linear-gradient(to right, #ebcb8b, #d08770);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            font-size: 3rem;
+            margin: 0 0 10px 0;
+        }
+
+        input, select {
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid #4c566a;
+            color: white;
+            padding: 10px;
+            border-radius: 8px;
+            width: 100%;
+            margin-bottom: 15px;
+            box-sizing: border-box;
+            font-family: 'Lato', sans-serif;
+        }
+
+        button {
+            background: linear-gradient(135deg, #5e81ac, #81a1c1);
+            border: none;
+            padding: 12px 24px;
+            color: white;
+            border-radius: 8px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: transform 0.1s, box-shadow 0.2s;
+            font-family: 'Cinzel', serif;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+        }
+
+        button:hover {
+            transform: scale(1.05);
+            box-shadow: 0 0 15px rgba(94, 129, 172, 0.5);
+        }
+
+        button.secondary {
+            background: #434c5e;
+        }
+
+        .grid-2 {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            text-align: left;
+        }
+
+        /* Lobby View */
+        #lobby-view {
+            background: #242933;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .player-list {
+            margin: 20px 0;
+            background: rgba(0,0,0,0.2);
+            border-radius: 8px;
+            padding: 10px;
+        }
+
+        .player-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 10px;
+            border-bottom: 1px solid #4c566a;
+        }
+
+        /* Game View */
+        #game-view {
+            position: relative;
+        }
+
+        canvas {
+            display: block;
+            background: #1a1e26;
+        }
+
+        /* HUD */
+        #hud-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none; /* Let clicks pass to canvas */
+        }
+
+        .hud-panel {
+            position: absolute;
+            background: var(--glass-bg);
+            backdrop-filter: blur(5px);
+            border: 1px solid var(--glass-border);
+            padding: 10px;
+            pointer-events: auto;
+            border-radius: 8px;
+        }
+
+        #top-bar {
+            top: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            gap: 20px;
+            align-items: center;
+        }
+
+        #bottom-left {
+            bottom: 10px;
+            left: 10px;
+            width: 300px;
+            height: 200px;
+            overflow-y: auto;
+            font-size: 0.9rem;
+        }
+
+        #bottom-right {
+            bottom: 10px;
+            right: 10px;
+            width: 250px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .log-entry {
+            margin-bottom: 5px;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+            padding-bottom: 2px;
+        }
+
+        .action-btn {
+            width: 100%;
+            margin-bottom: 5px;
+            font-size: 0.8rem;
+            padding: 8px;
+        }
+
+        .resource-display {
+            color: var(--text-gold);
+            font-weight: bold;
+        }
+
+        .modal {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.8);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 100;
+            pointer-events: auto;
+        }
+        
+        .hidden { display: none !important; }
+
+        .tech-tree-node {
+            padding: 10px;
+            border: 1px solid #88c0d0;
+            margin: 5px;
+            cursor: pointer;
+        }
+        .tech-tree-node.unlocked { background: #5e81ac; }
+        .tech-tree-node.locked { background: #2e3440; color: #666; }
+
+        #loading-overlay {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.9);
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 9999;
+            flex-direction: column;
+        }
+        
+        .unit-stats { font-size: 0.8em; color: #bbb; }
+    </style>
+</head>
+<body>
+
+<!-- Loading / Peer Init -->
+<div id="loading-overlay">
+    <h2 class="medieval-font">Initializing Comms...</h2>
+    <div id="init-status">Connecting to Network...</div>
+</div>
+
+<!-- Menu View -->
+<div id="menu-view" class="view active">
+    <div class="menu-card">
+        <h1 class="title-gradient medieval-font">Strategic Dominion</h1>
+        <h2 style="color: #88c0d0; letter-spacing: 4px; margin-bottom: 30px;">CYPRUS WARS</h2>
+        
+        <div class="grid-2">
+            <div style="border-right: 1px solid #4c566a; padding-right: 20px;">
+                <h3 class="medieval-font">Profile</h3>
+                <label>Name</label>
+                <input type="text" id="player-name" value="Commander">
+                <label>Faction</label>
+                <select id="faction-select">
+                    <option value="PEASANT_REBELLION">Peasant Rebellion</option>
+                    <option value="TECHNOLOGISTS">Technologists</option>
+                    <option value="ORDER_OF_KNIGHTS">Order of Knights</option>
+                    <option value="MARITIME_MERCHANTS">Maritime Merchants</option>
+                </select>
+                <div id="faction-desc" style="font-size: 0.8rem; color: #ebcb8b;"></div>
+            </div>
+            
+            <div style="display: flex; flex-direction: column; justify-content: center;">
+                <button onclick="gameApp.hostGame()">Create Campaign</button>
+                <div style="margin: 15px 0; font-size: 0.8rem; color: #888;">- OR -</div>
+                <input type="text" id="host-id-input" placeholder="Enter Host ID">
+                <button class="secondary" onclick="gameApp.joinGame()">Join Campaign</button>
+            </div>
+        </div>
+        
+        <div style="margin-top: 20px; font-size: 0.8rem; color: #666;">
+            Your ID: <span id="my-peer-id" style="color: #88c0d0; user-select: all;">...</span>
+        </div>
+    </div>
+</div>
+
+<!-- Lobby View -->
+<div id="lobby-view" class="view">
+    <div class="menu-card">
+        <h2 class="medieval-font">Mission Lobby</h2>
+        <div class="player-list" id="lobby-player-list">
+            <!-- Populated by JS -->
+        </div>
+        
+        <div id="host-controls" class="hidden">
+            <h3 class="medieval-font">Map Settings</h3>
+            <select id="map-type">
+                <option value="CYPRUS">Cyprus (Historic)</option>
+                <option value="RANDOM">Archipelago (Random)</option>
+            </select>
+            <br><br>
+            <button onclick="gameApp.startGame()">Deploy Units</button>
+        </div>
+        <div id="client-controls" class="hidden">
+            <p>Waiting for Host to Start...</p>
+        </div>
+        <br>
+        <button class="secondary" onclick="gameApp.leaveLobby()">Back</button>
+    </div>
+</div>
+
+<!-- Game View -->
+<div id="game-view" class="view">
+    <canvas id="game-canvas"></canvas>
+    
+    <div id="hud-layer">
+        <!-- Top Bar -->
+        <div id="top-bar" class="hud-panel">
+            <div class="medieval-font" id="turn-indicator">Turn 1</div>
+            <div id="timer" style="color: #d08770;">45s</div>
+            <div>Gold: <span id="gold-display" class="resource-display">0</span></div>
+            <div>Income: <span id="income-display" class="resource-display">+0</span></div>
+        </div>
+
+        <!-- Log -->
+        <div id="bottom-left" class="hud-panel">
+            <div id="game-log"></div>
+        </div>
+
+        <!-- Controls -->
+        <div id="bottom-right" class="hud-panel">
+            <div id="selection-panel">
+                <h3 class="medieval-font" id="selection-title" style="margin: 0 0 10px 0;">No Selection</h3>
+                <div id="selection-details" style="font-size: 0.8rem; margin-bottom: 10px;"></div>
+                <div id="action-buttons"></div>
+            </div>
+            <div style="border-top: 1px solid #666; margin-top: 5px; padding-top: 5px;">
+                <button class="action-btn" onclick="gameApp.toggleTechTree()">Research</button>
+                <button class="action-btn" style="background: #bf616a;" onclick="gameApp.endTurn()">End Turn</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Tech Tree Modal -->
+    <div id="tech-modal" class="modal hidden">
+        <div class="menu-card" style="max-width: 800px;">
+            <h2 class="medieval-font">Technology Research</h2>
+            <div id="tech-tree-container" style="display: flex; flex-wrap: wrap; justify-content: center;"></div>
+            <button class="secondary" onclick="gameApp.toggleTechTree()">Close</button>
+        </div>
+    </div>
+    
+    <!-- Game Over Modal -->
+    <div id="game-over-modal" class="modal hidden">
+        <div class="menu-card">
+            <h1 class="medieval-font" id="winner-title">Victory!</h1>
+            <p id="winner-message">The enemy has been vanquished.</p>
+            <button onclick="location.reload()">Return to Menu</button>
+        </div>
+    </div>
+</div>
+
+<script>
+/**
+ * CONSTANTS & CONFIG
+ */
+const TILE_SIZE = 64; // Base size for drawing
+const MAP_SIZE = 18;
+
+const FACTION_INFO = {
+    PEASANT_REBELLION: "Peasants cost -1 Gold.",
+    TECHNOLOGISTS: "Tech costs 30% less.",
+    ORDER_OF_KNIGHTS: "Knights -1 Gold, but Knight Tech cost +50%.",
+    MARITIME_MERCHANTS: "Boats cost -1 Gold."
+};
+
+const FACTION_COLORS = ['#bf616a', '#d08770', '#ebcb8b', '#a3be8c', '#b48ead'];
+
+const TERRAIN = {
+    WATER: 0,
+    LAND: 1,
+    MOUNTAIN: 2
+};
+
+const UNITS = {
+    PEASANT: { name: "Peasant", cost: 2, atk: 1, def: 1, range: 1, move: 1, sym: "P" },
+    ARCHER: { name: "Archer", cost: 3, atk: 1, def: 1, range: 2, move: 1, sym: "A" },
+    KNIGHT: { name: "Knight", cost: 4, atk: 1, def: 2, range: 1, move: 2, sym: "K" }, // Requires Iron
+    CATAPULT: { name: "Catapult", cost: 5, atk: 1, def: 5, range: 3, move: 1, sym: "C" },
+    TRADE_BOAT: { name: "Trade Boat", cost: 5, atk: 0, def: 1, range: 0, move: 1, sym: "T" },
+    WAR_BOAT: { name: "War Boat", cost: 10, atk: 2, def: 1, range: 1, move: 1, sym: "W" }
+};
+
+const STRUCTURES = {
+    CAPITAL: { name: "Capital", hp: 30, sym: "★" },
+    FORT: { name: "Fort", hp: 10, sym: "♜" },
+    DOCK: { name: "Dock", hp: 10, sym: "⚓" },
+    MINE_GOLD: { name: "Gold Mine", hp: 5, sym: "G" },
+    MINE_IRON: { name: "Iron Mine", hp: 5, sym: "Fe" }
+};
+
+const TECHS = {
+    ARCHERY: { name: "Archery", cost: 10, unlocks: "ARCHER" },
+    CHIVALRY: { name: "Chivalry", cost: 20, unlocks: "KNIGHT", reqRes: "IRON" },
+    SIEGE: { name: "Siegecraft", cost: 30, unlocks: "CATAPULT", reqRes: "IRON" },
+    FARMING: { name: "Farming", cost: 20, desc: "+Income" },
+    FISHING: { name: "Fishing", cost: 20, desc: "Unlocks Docks" },
+    BANKING: { name: "Banking", cost: 40, desc: "+Interest" }
+};
+
+/**
+ * GAME ENGINE SERVICES
+ */
+class GameEngine {
+    static createInitialState(config, players) {
+        const map = this.generateMap(config.mapType);
+        // Place players
+        const spawnPoints = this.getSpawnPoints(map, players.length);
+        
+        players.forEach((p, i) => {
+            const sp = spawnPoints[i];
+            if(sp) {
+                map[sp.y][sp.x].structure = { type: 'CAPITAL', hp: 30, ownerId: p.id };
+                map[sp.y][sp.x].ownerId = p.id;
+                // Initial Unit
+                map[sp.y][sp.x].unit = {
+                    id: `u_${Math.random()}`,
+                    type: 'PEASANT',
+                    ownerId: p.id,
+                    hp: 1, maxHp: 1, movesLeft: 1, hasAttacked: false
+                };
+            }
+            p.isAlive = true;
+            p.gold = 10;
+            p.techs = [];
+        });
+
+        return {
+            map,
+            players,
+            currentPlayerIndex: 0,
+            turn: 1,
+            phase: 'PLAYING',
+            logs: ["Game Started. Welcome Commanders."]
+        };
+    }
+
+    static generateMap(type) {
+        const map = [];
+        for (let y = 0; y < MAP_SIZE; y++) {
+            const row = [];
+            for (let x = 0; x < MAP_SIZE; x++) {
+                row.push({ x, y, terrain: TERRAIN.WATER, ownerId: null, unit: null, structure: null });
+            }
+            map.push(row);
+        }
+
+        if (type === 'CYPRUS') {
+            // Simple ellipse approximation for Cyprus
+            const cx = MAP_SIZE / 2;
+            const cy = MAP_SIZE / 2;
+            for (let y = 0; y < MAP_SIZE; y++) {
+                for (let x = 0; x < MAP_SIZE; x++) {
+                    const dx = (x - cx) * 1.2;
+                    const dy = (y - cy) * 2.0;
+                    if (Math.sqrt(dx*dx + dy*dy) < 7) {
+                        map[y][x].terrain = TERRAIN.LAND;
+                        // Troodos Mountains in center
+                        if (Math.abs(x - cx) < 2 && Math.abs(y - cy) < 1.5) {
+                            map[y][x].terrain = TERRAIN.MOUNTAIN;
+                        }
+                    }
+                }
+            }
+            // Peninsula tail
+            for(let x = 14; x < 17; x++) {
+                if(map[3] && map[3][x]) map[3][x].terrain = TERRAIN.LAND;
+            }
+        } else {
+            // Random Noise
+            for (let y = 0; y < MAP_SIZE; y++) {
+                for (let x = 0; x < MAP_SIZE; x++) {
+                    if (Math.random() > 0.6) map[y][x].terrain = TERRAIN.LAND;
+                    if (map[y][x].terrain === TERRAIN.LAND && Math.random() > 0.9) map[y][x].terrain = TERRAIN.MOUNTAIN;
+                }
+            }
+        }
+        return map;
+    }
+
+    static getSpawnPoints(map, count) {
+        // Simple corners/edges finder
+        const points = [];
+        // Top Left
+        points.push(this.findLand(map, 0, 0, 1, 1));
+        // Bottom Right
+        points.push(this.findLand(map, MAP_SIZE-1, MAP_SIZE-1, -1, -1));
+        // Top Right
+        points.push(this.findLand(map, MAP_SIZE-1, 0, -1, 1));
+        // Bottom Left
+        points.push(this.findLand(map, 0, MAP_SIZE-1, 1, -1));
+        // Center
+        points.push(this.findLand(map, MAP_SIZE/2, MAP_SIZE/2, 1, 1));
+        return points.slice(0, count);
+    }
+
+    static findLand(map, startX, startY, dx, dy) {
+        let x = startX, y = startY;
+        // Clamp
+        x = Math.max(0, Math.min(MAP_SIZE-1, x));
+        y = Math.max(0, Math.min(MAP_SIZE-1, y));
+        
+        let maxIter = 100;
+        while(maxIter-- > 0) {
+            if (x >= 0 && x < MAP_SIZE && y >= 0 && y < MAP_SIZE) {
+                if (map[Math.floor(y)][Math.floor(x)].terrain === TERRAIN.LAND) {
+                    return {x: Math.floor(x), y: Math.floor(y)};
+                }
+                x += dx;
+                if (x < 0 || x >= MAP_SIZE) {
+                    x = startX;
+                    y += dy;
+                }
+            } else {
+                break;
+            }
+        }
+        return {x: Math.floor(startX), y: Math.floor(startY)}; // Fallback
+    }
+
+    static canMove(unit, fromTile, toTile) {
+        if (unit.movesLeft <= 0) return false;
+        if (toTile.unit) return false; // Blocked
+        
+        const dx = Math.abs(fromTile.x - toTile.x);
+        const dy = Math.abs(fromTile.y - toTile.y);
+        const dist = dx + dy; // Manhattan
+        
+        if (dist > unit.move) return false; // Too far (simplified, assuming move=1 usually)
+
+        const isBoat = unit.type.includes('BOAT');
+        if (isBoat && toTile.terrain !== TERRAIN.WATER) return false;
+        if (!isBoat && toTile.terrain === TERRAIN.WATER && !toTile.structure) return false; // Land units need transport or bridge (not impl)
+        if (toTile.terrain === TERRAIN.MOUNTAIN) return false; // Impassable
+
+        return true;
+    }
+    
+    static nextTurn(state) {
+        let nextIdx = (state.currentPlayerIndex + 1) % state.players.length;
+        // Skip dead players
+        let loopGuard = 0;
+        while(!state.players[nextIdx].isAlive && loopGuard < state.players.length) {
+            nextIdx = (nextIdx + 1) % state.players.length;
+            loopGuard++;
+        }
+        
+        state.currentPlayerIndex = nextIdx;
+        if (nextIdx === 0) state.turn++;
+
+        const player = state.players[nextIdx];
+        
+        // Reset Units
+        for (let row of state.map) {
+            for (let tile of row) {
+                if (tile.unit && tile.unit.ownerId === player.id) {
+                    tile.unit.movesLeft = UNITS[tile.unit.type].move;
+                    tile.unit.hasAttacked = false;
+                }
+            }
+        }
+
+        // Income
+        let income = 0;
+        // Count regions
+        for (let row of state.map) {
+            for (let tile of row) {
+                if (tile.ownerId === player.id) income += 0.5;
+                if (tile.structure && tile.structure.ownerId === player.id && tile.structure.type === 'MINE_GOLD') income += 5;
+            }
+        }
+        // Tech bonuses
+        if (player.techs.includes('FARMING')) income += 5;
+        if (player.techs.includes('BANKING')) income += Math.floor(player.gold * 0.05);
+
+        player.gold += Math.floor(income);
+        state.logs.unshift(`Turn ${state.turn}: ${player.name}'s turn. Income: ${Math.floor(income)}`);
+        
+        return state;
+    }
+}
+
+/**
+ * APP LOGIC
+ */
+const gameApp = {
+    peer: null,
+    conn: null,
+    peerId: null,
+    gameState: null,
+    lobbyPlayers: [],
+    isHost: false,
+    view: 'MENU', // MENU, LOBBY, GAME
+    selection: null,
+
+    // Setup
+    init: function() {
+        this.peer = new Peer(null, { debug: 2 });
+        this.peer.on('open', (id) => {
+            this.peerId = id;
+            document.getElementById('my-peer-id').innerText = id;
+            document.getElementById('loading-overlay').classList.add('hidden');
+        });
+        
+        this.peer.on('connection', (c) => {
+            this.setupConnection(c);
+        });
+
+        this.peer.on('error', (err) => {
+            alert("PeerJS Error: " + err);
+        });
+
+        // UI Events
+        document.getElementById('faction-select').addEventListener('change', (e) => {
+            document.getElementById('faction-desc').innerText = FACTION_INFO[e.target.value];
+        });
+        document.getElementById('faction-desc').innerText = FACTION_INFO['PEASANT_REBELLION'];
+
+        // Canvas Events
+        const canvas = document.getElementById('game-canvas');
+        canvas.addEventListener('mousedown', (e) => this.handleCanvasClick(e));
+        window.addEventListener('resize', () => this.resizeCanvas());
+    },
+
+    setupConnection: function(c) {
+        c.on('data', (data) => this.handleNetworkMessage(data, c));
+        c.on('open', () => {
+            if (this.isHost) {
+                // Send current lobby state
+                c.send({ type: 'LOBBY_UPDATE', players: this.lobbyPlayers });
+            }
+        });
+        // Keep track of connections if host
+        if (this.isHost && !this.connections) this.connections = [];
+        if (this.isHost) this.connections.push(c);
+        else this.conn = c; // Client only has one connection to host
+    },
+
+    handleNetworkMessage: function(msg, sender) {
+        console.log("Received:", msg);
+        switch(msg.type) {
+            case 'JOIN_REQUEST':
+                if(this.isHost) {
+                    const newPlayer = {
+                        id: sender.peer,
+                        name: msg.player.name,
+                        faction: msg.player.faction,
+                        color: FACTION_COLORS[this.lobbyPlayers.length % FACTION_COLORS.length],
+                        isAlive: true,
+                        gold: 0, techs: []
+                    };
+                    this.lobbyPlayers.push(newPlayer);
+                    this.broadcast({ type: 'LOBBY_UPDATE', players: this.lobbyPlayers });
+                }
+                break;
+            case 'LOBBY_UPDATE':
+                this.lobbyPlayers = msg.players;
+                this.renderLobby();
+                break;
+            case 'SYNC_STATE':
+                this.gameState = msg.state;
+                if (this.view !== 'GAME') this.switchView('GAME');
+                this.renderGame();
+                this.updateHUD();
+                break;
+        }
+    },
+
+    broadcast: function(msg) {
+        if (this.isHost && this.connections) {
+            this.connections.forEach(c => c.send(msg));
+            // Loopback
+            if(msg.type === 'SYNC_STATE') this.gameState = msg.state;
+        } else if (this.conn) {
+            this.conn.send(msg); // Send to host
+        }
+    },
+
+    // Actions
+    hostGame: function() {
+        this.isHost = true;
+        this.lobbyPlayers = [{
+            id: this.peerId,
+            name: document.getElementById('player-name').value,
+            faction: document.getElementById('faction-select').value,
+            color: FACTION_COLORS[0],
+            isAlive: true,
+            gold: 0, techs: []
+        }];
+        this.switchView('LOBBY');
+        this.renderLobby();
+    },
+
+    joinGame: function() {
+        const hostId = document.getElementById('host-id-input').value;
+        if(!hostId) return alert("Enter Host ID");
+        
+        this.isHost = false;
+        const conn = this.peer.connect(hostId);
+        this.setupConnection(conn);
+        
+        conn.on('open', () => {
+            conn.send({
+                type: 'JOIN_REQUEST',
+                player: {
+                    name: document.getElementById('player-name').value,
+                    faction: document.getElementById('faction-select').value
+                }
+            });
+            this.switchView('LOBBY');
+        });
+    },
+
+    startGame: function() {
+        if(!this.isHost) return;
+        const config = { mapType: document.getElementById('map-type').value };
+        const initialState = GameEngine.createInitialState(config, this.lobbyPlayers);
+        this.gameState = initialState;
+        this.broadcast({ type: 'SYNC_STATE', state: initialState });
+        this.switchView('GAME');
+        this.resizeCanvas();
+        this.renderGame();
+    },
+
+    switchView: function(viewName) {
+        this.view = viewName;
+        document.querySelectorAll('.view').forEach(el => el.classList.remove('active'));
+        if(viewName === 'MENU') document.getElementById('menu-view').classList.add('active');
+        if(viewName === 'LOBBY') document.getElementById('lobby-view').classList.add('active');
+        if(viewName === 'GAME') document.getElementById('game-view').classList.add('active');
+
+        if(viewName === 'LOBBY') {
+            if(this.isHost) {
+                document.getElementById('host-controls').classList.remove('hidden');
+                document.getElementById('client-controls').classList.add('hidden');
+            } else {
+                document.getElementById('host-controls').classList.add('hidden');
+                document.getElementById('client-controls').classList.remove('hidden');
+            }
+        }
+    },
+
+    renderLobby: function() {
+        const list = document.getElementById('lobby-player-list');
+        list.innerHTML = '';
+        this.lobbyPlayers.forEach(p => {
+            const div = document.createElement('div');
+            div.className = 'player-item';
+            div.innerHTML = `
+                <div style="display:flex;align-items:center;gap:10px;">
+                    <div style="width:15px;height:15px;border-radius:50%;background:${p.color}"></div>
+                    <div>${p.name} <span style="font-size:0.8em;color:#aaa">(${p.faction})</span></div>
+                </div>
+                <div style="color:#a3be8c">READY</div>
+            `;
+            list.appendChild(div);
+        });
+    },
+
+    // GAMEPLAY
+    
+    handleCanvasClick: function(e) {
+        if (!this.gameState) return;
+        const rect = e.target.getBoundingClientRect();
+        
+        // ISO Coords calculation
+        const screenX = e.clientX - rect.left;
+        const screenY = e.clientY - rect.top;
+        
+        // Simple approximation for click detection on tile grid (not perfect ISO picking but works for grid)
+        // Reverse projection:
+        // screenX = (x - y) * TILE_WIDTH/2 + OFFSET_X
+        // screenY = (x + y) * TILE_HEIGHT/2 + OFFSET_Y
+        // This is complex. Let's do a simple distance check against all rendered tile centers for robustness.
+        
+        const offsetX = e.target.width / 2;
+        const offsetY = 100;
+        
+        let bestTile = null;
+        let minDst = 9999;
+
+        for(let r=0; r<this.gameState.map.length; r++) {
+            for(let c=0; c<this.gameState.map[0].length; c++) {
+                const t = this.gameState.map[r][c];
+                const tx = (c - r) * (TILE_SIZE / 2) + offsetX;
+                const ty = (c + r) * (TILE_SIZE / 4) + offsetY;
+                
+                const dist = Math.sqrt(Math.pow(screenX - tx, 2) + Math.pow(screenY - ty, 2));
+                // Approx hit box
+                if (dist < TILE_SIZE/2 && dist < minDst) {
+                    minDst = dist;
+                    bestTile = t;
+                }
+            }
+        }
+
+        if (bestTile) {
+            this.onTileInteraction(bestTile.x, bestTile.y);
+        }
+    },
+
+    onTileInteraction: function(x, y) {
+        const state = this.gameState;
+        const currentPlayer = state.players[state.currentPlayerIndex];
+        
+        // Only allow current player to act
+        if (currentPlayer.id !== this.peerId) return;
+
+        const targetTile = state.map[y][x];
+        const clickedUnit = targetTile.unit;
+
+        // State machine for selection
+        if (this.selection) {
+            const prevTile = state.map[this.selection.y][this.selection.x];
+            const selectedUnit = prevTile.unit;
+            
+            // Move Logic
+            if (GameEngine.canMove(selectedUnit, prevTile, targetTile)) {
+                // Send Move Action
+                this.sendAction({ type: 'MOVE', from: {x: this.selection.x, y: this.selection.y}, to: {x, y} });
+                this.selection = null;
+            }
+            // Attack Logic
+            else if (clickedUnit && clickedUnit.ownerId !== this.peerId) {
+                 const dist = Math.abs(x - this.selection.x) + Math.abs(y - this.selection.y);
+                 if (dist <= UNITS[selectedUnit.type].range && !selectedUnit.hasAttacked) {
+                     this.sendAction({ type: 'ATTACK', from: {x: this.selection.x, y: this.selection.y}, to: {x, y} });
+                     this.selection = null;
+                 } else {
+                     // Select new if own unit
+                     if(clickedUnit.ownerId === this.peerId) this.selection = {x, y};
+                     else this.selection = null;
+                 }
+            }
+            // Deselect or switch
+            else {
+                if(clickedUnit && clickedUnit.ownerId === this.peerId) this.selection = {x, y};
+                else this.selection = null;
+            }
+        } else {
+            if (clickedUnit && clickedUnit.ownerId === this.peerId) {
+                this.selection = {x, y};
+            }
+        }
+        
+        this.renderGame();
+        this.updateHUD();
+    },
+
+    sendAction: function(action) {
+        // For simplicity, we'll process locally then broadcast state
+        // In a real authoritative server, we'd send the action request.
+        // Here we act as "host" for logic if we are host, or if P2P we trust clients (insecure but simple).
+        // Actually, let's update state locally if valid then broadcast 'SYNC_STATE'
+        
+        // Clone state
+        const newState = JSON.parse(JSON.stringify(this.gameState));
+        const player = newState.players[newState.currentPlayerIndex];
+        
+        if (action.type === 'MOVE') {
+            const u = newState.map[action.from.y][action.from.x].unit;
+            newState.map[action.to.y][action.to.x].unit = u;
+            newState.map[action.from.y][action.from.x].unit = null;
+            u.movesLeft -= 1;
+            
+            // Capture land
+            if (newState.map[action.to.y][action.to.x].terrain === TERRAIN.LAND) {
+                newState.map[action.to.y][action.to.x].ownerId = player.id;
+            }
+            newState.logs.unshift(`${player.name} moved ${UNITS[u.type].name}`);
+        }
+        
+        if (action.type === 'ATTACK') {
+            const attacker = newState.map[action.from.y][action.from.x].unit;
+            const defender = newState.map[action.to.y][action.to.x].unit;
+            
+            // Simple Combat Math
+            const dmg = Math.max(0, UNITS[attacker.type].atk - (UNITS[defender.type].def * 0.1)); // Simplified
+            let finalDmg = 1; // Min damage
+            
+            // Rock Paper Scissors mods
+            if(attacker.type === 'KNIGHT' && defender.type === 'ARCHER') finalDmg = 2;
+            if(attacker.type === 'ARCHER' && defender.type === 'PEASANT') finalDmg = 1;
+            
+            defender.hp -= finalDmg;
+            attacker.hasAttacked = true;
+            attacker.movesLeft = 0;
+            
+            newState.logs.unshift(`${player.name}'s ${UNITS[attacker.type].name} hit ${UNITS[defender.type].name} for ${finalDmg} dmg!`);
+            
+            if (defender.hp <= 0) {
+                 newState.map[action.to.y][action.to.x].unit = null;
+                 newState.logs.unshift(`Enemy unit destroyed!`);
+            }
+        }
+
+        if (action.type === 'END_TURN') {
+            GameEngine.nextTurn(newState);
+        }
+        
+        if (action.type === 'BUY_UNIT') {
+             // Find spawn
+             // Simplified: spawn at any owned structure that is suitable
+             let spawned = false;
+             const cost = UNITS[action.unitType].cost;
+             
+             // Apply Faction Discounts
+             let actualCost = cost;
+             if (player.faction === 'PEASANT_REBELLION' && action.unitType === 'PEASANT') actualCost -= 1;
+             if (player.faction === 'MARITIME_MERCHANTS' && action.unitType.includes('BOAT')) actualCost -= 1;
+             if (player.faction === 'ORDER_OF_KNIGHTS' && action.unitType === 'KNIGHT') actualCost -= 1;
+             
+             if (player.gold >= actualCost) {
+                 // Find place
+                 for(let r=0; r<MAP_SIZE; r++) {
+                     for(let c=0; c<MAP_SIZE; c++) {
+                         const t = newState.map[r][c];
+                         if(t.ownerId === player.id && !t.unit && t.structure) {
+                             // Check if water unit
+                             const isWater = action.unitType.includes('BOAT');
+                             const isDock = t.structure.type === 'DOCK';
+                             if(isWater === isDock || (!isWater && !isDock)) {
+                                 t.unit = {
+                                     id: `u_${Math.random()}`,
+                                     type: action.unitType,
+                                     ownerId: player.id,
+                                     hp: 5, maxHp: 5, movesLeft: 0, hasAttacked: true
+                                 };
+                                 player.gold -= actualCost;
+                                 spawned = true;
+                                 break;
+                             }
+                         }
+                     }
+                     if(spawned) break;
+                 }
+                 if(spawned) newState.logs.unshift(`${player.name} recruited ${action.unitType}`);
+                 else alert("No valid spawn point (Capital/Fort/Dock) free!");
+             } else {
+                 alert("Not enough gold!");
+             }
+        }
+
+        this.gameState = newState;
+        this.broadcast({ type: 'SYNC_STATE', state: newState });
+        this.renderGame();
+        this.updateHUD();
+    },
+
+    endTurn: function() {
+        this.sendAction({ type: 'END_TURN' });
+    },
+    
+    buyUnit: function(type) {
+        this.sendAction({ type: 'BUY_UNIT', unitType: type });
+    },
+
+    updateHUD: function() {
+        if (!this.gameState) return;
+        const myPlayer = this.gameState.players.find(p => p.id === this.peerId);
+        const turnPlayer = this.gameState.players[this.gameState.currentPlayerIndex];
+        
+        document.getElementById('turn-indicator').innerText = `Turn ${this.gameState.turn} - ${turnPlayer.name}'s Turn`;
+        document.getElementById('gold-display').innerText = myPlayer ? myPlayer.gold : 0;
+        
+        // Logs
+        const logDiv = document.getElementById('game-log');
+        logDiv.innerHTML = this.gameState.logs.slice(0, 10).map(l => `<div class="log-entry">${l}</div>`).join('');
+        
+        // Selection
+        const selPanel = document.getElementById('selection-panel');
+        const selTitle = document.getElementById('selection-title');
+        const selDetails = document.getElementById('selection-details');
+        const actionBtns = document.getElementById('action-buttons');
+        
+        actionBtns.innerHTML = '';
+        
+        if (this.selection) {
+            const tile = this.gameState.map[this.selection.y][this.selection.x];
+            if (tile.unit) {
+                const uInfo = UNITS[tile.unit.type];
+                selTitle.innerText = uInfo.name;
+                selDetails.innerHTML = `HP: ${tile.unit.hp} | Move: ${tile.unit.movesLeft}`;
+            } else if (tile.structure) {
+                const sInfo = STRUCTURES[tile.structure.type];
+                selTitle.innerText = sInfo.name;
+                selDetails.innerHTML = "Structure";
+                // Recruitment
+                if(tile.ownerId === this.peerId) {
+                    // Add recruit buttons
+                    if (tile.structure.type === 'CAPITAL' || tile.structure.type === 'FORT') {
+                         ['PEASANT', 'ARCHER', 'KNIGHT', 'CATAPULT'].forEach(ut => {
+                             const btn = document.createElement('button');
+                             btn.className = 'action-btn';
+                             btn.innerText = `Recruit ${UNITS[ut].name} (${UNITS[ut].cost}g)`;
+                             btn.onclick = () => this.buyUnit(ut);
+                             actionBtns.appendChild(btn);
+                         });
+                    }
+                }
+            } else {
+                selTitle.innerText = "Empty Tile";
+                selDetails.innerHTML = "";
+            }
+        } else {
+            selTitle.innerText = "No Selection";
+            selDetails.innerHTML = "Select a unit or structure.";
+        }
+    },
+    
+    toggleTechTree: function() {
+        document.getElementById('tech-modal').classList.toggle('hidden');
+        this.renderTechTree();
+    },
+    
+    renderTechTree: function() {
+        const container = document.getElementById('tech-tree-container');
+        container.innerHTML = '';
+        Object.keys(TECHS).forEach(k => {
+            const t = TECHS[k];
+            const div = document.createElement('div');
+            div.className = 'tech-tree-node';
+            div.innerHTML = `<strong>${t.name}</strong><br>${t.cost}g`;
+            container.appendChild(div);
+        });
+    },
+
+    // RENDERER
+    resizeCanvas: function() {
+        const cvs = document.getElementById('game-canvas');
+        cvs.width = window.innerWidth;
+        cvs.height = window.innerHeight;
+        this.renderGame();
+    },
+
+    renderGame: function() {
+        if(!this.gameState) return;
+        const cvs = document.getElementById('game-canvas');
+        const ctx = cvs.getContext('2d');
+        ctx.clearRect(0, 0, cvs.width, cvs.height);
+
+        const map = this.gameState.map;
+        const offsetX = cvs.width / 2;
+        const offsetY = 100;
+
+        // Render Map
+        for(let r=0; r<map.length; r++) {
+            for(let c=0; c<map[0].length; c++) {
+                const t = map[r][c];
+                // Isometric Projection
+                const isoX = (c - r) * (TILE_SIZE / 2) + offsetX;
+                const isoY = (c + r) * (TILE_SIZE / 4) + offsetY;
+                
+                this.drawTile(ctx, isoX, isoY, t);
+                
+                // Highlight Selection
+                if (this.selection && this.selection.x === c && this.selection.y === r) {
+                    ctx.save();
+                    ctx.strokeStyle = '#ebcb8b';
+                    ctx.lineWidth = 2;
+                    ctx.shadowColor = '#ebcb8b';
+                    ctx.shadowBlur = 10;
+                    this.drawIsoRect(ctx, isoX, isoY, TILE_SIZE);
+                    ctx.restore();
+                }
+            }
+        }
+    },
+
+    drawTile: function(ctx, x, y, tile) {
+        // Colors
+        let baseColor;
+        if (tile.terrain === TERRAIN.WATER) baseColor = '#2e3440'; // Deep Ocean
+        else if (tile.terrain === TERRAIN.MOUNTAIN) baseColor = '#434c5e'; // Mountain
+        else baseColor = '#a3be8c'; // Land
+
+        // Owner Tint
+        if (tile.ownerId) {
+            const owner = this.gameState.players.find(p => p.id === tile.ownerId);
+            if (owner && tile.terrain === TERRAIN.LAND) {
+                // Blending logic could be better but simple overlay
+                // baseColor = owner.color; // Simplification for single file
+            }
+        }
+
+        // Draw Block (Extrusion)
+        const height = tile.terrain === TERRAIN.MOUNTAIN ? 20 : 5;
+        
+        // Top Face
+        ctx.fillStyle = baseColor;
+        // Gradient for water
+        if (tile.terrain === TERRAIN.WATER) {
+            const grad = ctx.createLinearGradient(x, y-10, x, y+10);
+            grad.addColorStop(0, '#4c566a');
+            grad.addColorStop(1, '#2e3440');
+            ctx.fillStyle = grad;
+        }
+        
+        ctx.beginPath();
+        ctx.moveTo(x, y - height);
+        ctx.lineTo(x + TILE_SIZE/2, y + TILE_SIZE/4 - height);
+        ctx.lineTo(x, y + TILE_SIZE/2 - height);
+        ctx.lineTo(x - TILE_SIZE/2, y + TILE_SIZE/4 - height);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke(); // Outline
+
+        // Side Faces (Darker)
+        ctx.fillStyle = 'rgba(0,0,0,0.2)';
+        ctx.beginPath();
+        ctx.moveTo(x - TILE_SIZE/2, y + TILE_SIZE/4 - height);
+        ctx.lineTo(x, y + TILE_SIZE/2 - height);
+        ctx.lineTo(x, y + TILE_SIZE/2);
+        ctx.lineTo(x - TILE_SIZE/2, y + TILE_SIZE/4);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+        
+        ctx.beginPath();
+        ctx.moveTo(x, y + TILE_SIZE/2 - height);
+        ctx.lineTo(x + TILE_SIZE/2, y + TILE_SIZE/4 - height);
+        ctx.lineTo(x + TILE_SIZE/2, y + TILE_SIZE/4);
+        ctx.lineTo(x, y + TILE_SIZE/2);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+
+        // Structure
+        if (tile.structure) {
+            this.drawEntity(ctx, x, y - height - 10, STRUCTURES[tile.structure.type].sym, '#d8dee9');
+        }
+
+        // Unit
+        if (tile.unit) {
+            const u = tile.unit;
+            const owner = this.gameState.players.find(p => p.id === u.ownerId);
+            this.drawEntity(ctx, x, y - height - 15, UNITS[u.type].sym, owner.color, true);
+        }
+    },
+
+    drawEntity: function(ctx, x, y, symbol, color, isUnit = false) {
+        ctx.save();
+        ctx.translate(x, y);
+        
+        // Shadow
+        ctx.fillStyle = 'rgba(0,0,0,0.5)';
+        ctx.beginPath();
+        ctx.ellipse(0, 10, 10, 5, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Body
+        if (isUnit) {
+            // Icon/Shape
+            ctx.fillStyle = color;
+            ctx.beginPath();
+            ctx.arc(0, 0, 8, 0, Math.PI*2);
+            ctx.fill();
+            ctx.strokeStyle = '#fff';
+            ctx.lineWidth = 1;
+            ctx.stroke();
+        } else {
+            // Structure
+            ctx.fillStyle = '#4c566a';
+            ctx.fillRect(-8, -8, 16, 16);
+        }
+
+        // Text Symbol
+        ctx.fillStyle = '#fff';
+        ctx.font = '10px Lato';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(symbol, 0, 0);
+
+        ctx.restore();
+    },
+
+    drawIsoRect: function(ctx, x, y, size) {
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        ctx.lineTo(x + size/2, y + size/4);
+        ctx.lineTo(x, y + size/2);
+        ctx.lineTo(x - size/2, y + size/4);
+        ctx.closePath();
+        ctx.stroke();
+    },
+    
+    leaveLobby: function() {
+        // Reset logic
+        location.reload(); 
+    }
+};
+
+// Boot
+window.onload = () => gameApp.init();
+
+</script>
+</body>
+</html>
+
