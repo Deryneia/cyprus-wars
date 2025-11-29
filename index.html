@@ -1,4 +1,4 @@
-<!-- Strategic Dominion: Cyprus Wars - v1.0.1 -->
+<!-- Strategic Dominion: Cyprus Wars - v1.1.0 -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -65,7 +65,7 @@
             border-radius: 16px;
             border: 1px solid var(--glass-border);
             box-shadow: 0 20px 50px rgba(0,0,0,0.5);
-            max-width: 600px;
+            max-width: 800px; /* Widen for improved Lobby */
             width: 90%;
             text-align: center;
         }
@@ -112,6 +112,10 @@
         button.secondary {
             background: #434c5e;
         }
+        
+        button.danger {
+            background: #bf616a;
+        }
 
         .grid-2 {
             display: grid;
@@ -135,10 +139,18 @@
         }
 
         .player-item {
-            display: flex;
-            justify-content: space-between;
+            display: grid;
+            grid-template-columns: 40px 2fr 1fr 1fr 40px;
+            align-items: center;
+            gap: 10px;
             padding: 10px;
             border-bottom: 1px solid #4c566a;
+            text-align: left;
+        }
+        
+        .player-item select {
+            margin-bottom: 0;
+            padding: 5px;
         }
 
         /* Game View */
@@ -272,14 +284,6 @@
                 <h3 class="medieval-font">Profile</h3>
                 <label>Name</label>
                 <input type="text" id="player-name" value="Commander">
-                <label>Faction</label>
-                <select id="faction-select">
-                    <option value="PEASANT_REBELLION">Peasant Rebellion</option>
-                    <option value="TECHNOLOGISTS">Technologists</option>
-                    <option value="ORDER_OF_KNIGHTS">Order of Knights</option>
-                    <option value="MARITIME_MERCHANTS">Maritime Merchants</option>
-                </select>
-                <div id="faction-desc" style="font-size: 0.8rem; color: #ebcb8b;"></div>
             </div>
             
             <div style="display: flex; flex-direction: column; justify-content: center;">
@@ -300,13 +304,16 @@
 <div id="lobby-view" class="view">
     <div class="menu-card">
         <h2 class="medieval-font">Mission Lobby</h2>
-        <div class="player-list" id="lobby-player-list">
-            <!-- Populated by JS -->
-        </div>
+        
+        <!-- Slot Config -->
+        <div class="player-list" id="lobby-slots"></div>
         
         <div id="host-controls" class="hidden">
+            <button onclick="gameApp.addSlot()" style="margin-bottom: 10px; font-size: 0.8rem;">+ Add AI / Slot</button>
+            
             <h3 class="medieval-font">Map Settings</h3>
             <select id="map-type">
+                <option value="SIMPLE_SQUARE">Simple Square (Test)</option>
                 <option value="CYPRUS">Cyprus (Historic)</option>
                 <option value="RANDOM">Archipelago (Random)</option>
             </select>
@@ -329,7 +336,7 @@
         <!-- Top Bar -->
         <div id="top-bar" class="hud-panel">
             <div class="medieval-font" id="turn-indicator">Turn 1</div>
-            <div id="timer" style="color: #d08770;">45s</div>
+            <div id="timer" style="color: #d08770; font-weight: bold;">45s</div>
             <div>Gold: <span id="gold-display" class="resource-display">0</span></div>
             <div>Income: <span id="income-display" class="resource-display">+0</span></div>
         </div>
@@ -376,8 +383,9 @@
 /**
  * CONSTANTS & CONFIG
  */
-const TILE_SIZE = 64; // Base size for drawing
+const TILE_SIZE = 64; 
 const MAP_SIZE = 18;
+const TURN_TIME = 45; // Seconds
 
 const FACTION_INFO = {
     PEASANT_REBELLION: "Peasants cost -1 Gold.",
@@ -387,6 +395,7 @@ const FACTION_INFO = {
 };
 
 const FACTION_COLORS = ['#bf616a', '#d08770', '#ebcb8b', '#a3be8c', '#b48ead'];
+const FACTION_TYPES = Object.keys(FACTION_INFO);
 
 const TERRAIN = {
     WATER: 0,
@@ -424,9 +433,21 @@ const TECHS = {
  * GAME ENGINE SERVICES
  */
 class GameEngine {
-    static createInitialState(config, players) {
+    static createInitialState(config, lobbySlots) {
         const map = this.generateMap(config.mapType);
-        // Place players
+        // Create Players from Lobby Slots
+        const players = lobbySlots.map((slot, i) => ({
+            id: slot.id || `ai_${i}`,
+            name: slot.name,
+            type: slot.type, // HUMAN or CPU
+            difficulty: slot.difficulty || 'MEDIUM',
+            faction: slot.faction,
+            color: FACTION_COLORS[i % FACTION_COLORS.length],
+            isAlive: true,
+            gold: 10,
+            techs: []
+        }));
+
         const spawnPoints = this.getSpawnPoints(map, players.length);
         
         players.forEach((p, i) => {
@@ -442,9 +463,6 @@ class GameEngine {
                     hp: 1, maxHp: 1, movesLeft: 1, hasAttacked: false
                 };
             }
-            p.isAlive = true;
-            p.gold = 10;
-            p.techs = [];
         });
 
         return {
@@ -453,7 +471,8 @@ class GameEngine {
             currentPlayerIndex: 0,
             turn: 1,
             phase: 'PLAYING',
-            logs: ["Game Started. Welcome Commanders."]
+            logs: ["Game Started. Welcome Commanders."],
+            timeLeft: TURN_TIME
         };
     }
 
@@ -467,8 +486,15 @@ class GameEngine {
             map.push(row);
         }
 
-        if (type === 'CYPRUS') {
-            // Simple ellipse approximation for Cyprus
+        if (type === 'SIMPLE_SQUARE') {
+            // 12x12 Green Square in middle
+            const inset = 3;
+            for (let y = inset; y < MAP_SIZE - inset; y++) {
+                for (let x = inset; x < MAP_SIZE - inset; x++) {
+                    map[y][x].terrain = TERRAIN.LAND;
+                }
+            }
+        } else if (type === 'CYPRUS') {
             const cx = MAP_SIZE / 2;
             const cy = MAP_SIZE / 2;
             for (let y = 0; y < MAP_SIZE; y++) {
@@ -477,19 +503,16 @@ class GameEngine {
                     const dy = (y - cy) * 2.0;
                     if (Math.sqrt(dx*dx + dy*dy) < 7) {
                         map[y][x].terrain = TERRAIN.LAND;
-                        // Troodos Mountains in center
                         if (Math.abs(x - cx) < 2 && Math.abs(y - cy) < 1.5) {
                             map[y][x].terrain = TERRAIN.MOUNTAIN;
                         }
                     }
                 }
             }
-            // Peninsula tail
             for(let x = 14; x < 17; x++) {
                 if(map[3] && map[3][x]) map[3][x].terrain = TERRAIN.LAND;
             }
         } else {
-            // Random Noise
             for (let y = 0; y < MAP_SIZE; y++) {
                 for (let x = 0; x < MAP_SIZE; x++) {
                     if (Math.random() > 0.6) map[y][x].terrain = TERRAIN.LAND;
@@ -501,24 +524,18 @@ class GameEngine {
     }
 
     static getSpawnPoints(map, count) {
-        // Simple corners/edges finder
         const points = [];
-        // Top Left
+        // TL, BR, TR, BL, Center
         points.push(this.findLand(map, 0, 0, 1, 1));
-        // Bottom Right
         points.push(this.findLand(map, MAP_SIZE-1, MAP_SIZE-1, -1, -1));
-        // Top Right
         points.push(this.findLand(map, MAP_SIZE-1, 0, -1, 1));
-        // Bottom Left
         points.push(this.findLand(map, 0, MAP_SIZE-1, 1, -1));
-        // Center
         points.push(this.findLand(map, MAP_SIZE/2, MAP_SIZE/2, 1, 1));
         return points.slice(0, count);
     }
 
     static findLand(map, startX, startY, dx, dy) {
         let x = startX, y = startY;
-        // Clamp
         x = Math.max(0, Math.min(MAP_SIZE-1, x));
         y = Math.max(0, Math.min(MAP_SIZE-1, y));
         
@@ -533,34 +550,31 @@ class GameEngine {
                     x = startX;
                     y += dy;
                 }
-            } else {
-                break;
-            }
+            } else break;
         }
-        return {x: Math.floor(startX), y: Math.floor(startY)}; // Fallback
+        return {x: Math.floor(startX), y: Math.floor(startY)};
     }
 
     static canMove(unit, fromTile, toTile) {
         if (unit.movesLeft <= 0) return false;
-        if (toTile.unit) return false; // Blocked
+        if (toTile.unit) return false; 
         
         const dx = Math.abs(fromTile.x - toTile.x);
         const dy = Math.abs(fromTile.y - toTile.y);
-        const dist = dx + dy; // Manhattan
+        const dist = dx + dy; 
         
-        if (dist > unit.move) return false; // Too far (simplified, assuming move=1 usually)
+        if (dist > unit.move) return false; 
 
         const isBoat = unit.type.includes('BOAT');
         if (isBoat && toTile.terrain !== TERRAIN.WATER) return false;
-        if (!isBoat && toTile.terrain === TERRAIN.WATER && !toTile.structure) return false; // Land units need transport or bridge (not impl)
-        if (toTile.terrain === TERRAIN.MOUNTAIN) return false; // Impassable
+        if (!isBoat && toTile.terrain === TERRAIN.WATER && !toTile.structure) return false; 
+        if (toTile.terrain === TERRAIN.MOUNTAIN) return false; 
 
         return true;
     }
     
     static nextTurn(state) {
         let nextIdx = (state.currentPlayerIndex + 1) % state.players.length;
-        // Skip dead players
         let loopGuard = 0;
         while(!state.players[nextIdx].isAlive && loopGuard < state.players.length) {
             nextIdx = (nextIdx + 1) % state.players.length;
@@ -569,6 +583,7 @@ class GameEngine {
         
         state.currentPlayerIndex = nextIdx;
         if (nextIdx === 0) state.turn++;
+        state.timeLeft = TURN_TIME; // Reset Timer
 
         const player = state.players[nextIdx];
         
@@ -584,14 +599,12 @@ class GameEngine {
 
         // Income
         let income = 0;
-        // Count regions
         for (let row of state.map) {
             for (let tile of row) {
                 if (tile.ownerId === player.id) income += 0.5;
                 if (tile.structure && tile.structure.ownerId === player.id && tile.structure.type === 'MINE_GOLD') income += 5;
             }
         }
-        // Tech bonuses
         if (player.techs.includes('FARMING')) income += 5;
         if (player.techs.includes('BANKING')) income += Math.floor(player.gold * 0.05);
 
@@ -603,6 +616,71 @@ class GameEngine {
 }
 
 /**
+ * AI LOGIC
+ */
+class AIPlayer {
+    static processTurn(app, gameState) {
+        const player = gameState.players[gameState.currentPlayerIndex];
+        if (player.type !== 'CPU') return;
+
+        console.log(`AI ${player.name} thinking...`);
+        
+        // 1. Move Units
+        // Simple logic: Move towards enemy capital or unit
+        const myUnits = [];
+        for(let r=0; r<MAP_SIZE; r++) {
+            for(let c=0; c<MAP_SIZE; c++) {
+                if(gameState.map[r][c].unit && gameState.map[r][c].unit.ownerId === player.id) {
+                    myUnits.push({x: c, y: r, u: gameState.map[r][c].unit});
+                }
+            }
+        }
+
+        myUnits.forEach(unitData => {
+            if(unitData.u.movesLeft > 0) {
+                this.tryMoveAI(app, unitData, gameState);
+            }
+        });
+
+        // 2. Buy Units
+        if (player.gold >= 2) {
+             // Simple: buy peasant if possible
+             app.buyUnit('PEASANT');
+        }
+
+        // 3. End Turn
+        setTimeout(() => app.endTurn(), 1500); // Small delay for "thinking"
+    }
+
+    static tryMoveAI(app, unitData, state) {
+        // Try random adjacent move for now (Placeholder for A*)
+        const dx = [0, 0, 1, -1];
+        const dy = [1, -1, 0, 0];
+        
+        for(let i=0; i<4; i++) {
+            const nx = unitData.x + dx[i];
+            const ny = unitData.y + dy[i];
+            if(nx>=0 && nx<MAP_SIZE && ny>=0 && ny<MAP_SIZE) {
+                const target = state.map[ny][nx];
+                // Just try to capture empty land
+                if(GameEngine.canMove(unitData.u, state.map[unitData.y][unitData.x], target)) {
+                    // If enemy, attack
+                    if(target.unit && target.unit.ownerId !== unitData.u.ownerId) {
+                        app.sendAction({ type: 'ATTACK', from: {x: unitData.x, y: unitData.y}, to: {x: nx, y: ny} });
+                        return;
+                    }
+                    // If empty land, move
+                    if(!target.unit && target.terrain === TERRAIN.LAND) {
+                        app.sendAction({ type: 'MOVE', from: {x: unitData.x, y: unitData.y}, to: {x: nx, y: ny} });
+                        return;
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
  * APP LOGIC
  */
 const gameApp = {
@@ -610,10 +688,11 @@ const gameApp = {
     conn: null,
     peerId: null,
     gameState: null,
-    lobbyPlayers: [],
+    lobbySlots: [], // Changed from lobbyPlayers to slots
     isHost: false,
-    view: 'MENU', // MENU, LOBBY, GAME
+    view: 'MENU', 
     selection: null,
+    turnTimerInterval: null,
 
     // Setup
     init: function() {
@@ -628,55 +707,46 @@ const gameApp = {
             this.setupConnection(c);
         });
 
-        this.peer.on('error', (err) => {
-            alert("PeerJS Error: " + err);
-        });
-
-        // UI Events
-        document.getElementById('faction-select').addEventListener('change', (e) => {
-            document.getElementById('faction-desc').innerText = FACTION_INFO[e.target.value];
-        });
-        document.getElementById('faction-desc').innerText = FACTION_INFO['PEASANT_REBELLION'];
-
         // Canvas Events
         const canvas = document.getElementById('game-canvas');
         canvas.addEventListener('mousedown', (e) => this.handleCanvasClick(e));
         window.addEventListener('resize', () => this.resizeCanvas());
+
+        // Timer Loop
+        setInterval(() => this.gameLoop(), 1000);
     },
 
     setupConnection: function(c) {
         c.on('data', (data) => this.handleNetworkMessage(data, c));
         c.on('open', () => {
             if (this.isHost) {
-                // Send current lobby state
-                c.send({ type: 'LOBBY_UPDATE', players: this.lobbyPlayers });
+                c.send({ type: 'LOBBY_UPDATE', slots: this.lobbySlots });
             }
         });
-        // Keep track of connections if host
         if (this.isHost && !this.connections) this.connections = [];
         if (this.isHost) this.connections.push(c);
-        else this.conn = c; // Client only has one connection to host
+        else this.conn = c; 
     },
 
     handleNetworkMessage: function(msg, sender) {
-        console.log("Received:", msg);
         switch(msg.type) {
             case 'JOIN_REQUEST':
                 if(this.isHost) {
-                    const newPlayer = {
-                        id: sender.peer,
-                        name: msg.player.name,
-                        faction: msg.player.faction,
-                        color: FACTION_COLORS[this.lobbyPlayers.length % FACTION_COLORS.length],
-                        isAlive: true,
-                        gold: 0, techs: []
-                    };
-                    this.lobbyPlayers.push(newPlayer);
-                    this.broadcast({ type: 'LOBBY_UPDATE', players: this.lobbyPlayers });
+                    // Find first empty HUMAN slot
+                    const emptySlotIdx = this.lobbySlots.findIndex(s => s.type === 'HUMAN' && !s.id);
+                    if (emptySlotIdx !== -1) {
+                        this.lobbySlots[emptySlotIdx] = {
+                            ...this.lobbySlots[emptySlotIdx],
+                            id: sender.peer,
+                            name: msg.player.name,
+                            ready: true
+                        };
+                        this.broadcast({ type: 'LOBBY_UPDATE', slots: this.lobbySlots });
+                    }
                 }
                 break;
             case 'LOBBY_UPDATE':
-                this.lobbyPlayers = msg.players;
+                this.lobbySlots = msg.slots;
                 this.renderLobby();
                 break;
             case 'SYNC_STATE':
@@ -691,24 +761,26 @@ const gameApp = {
     broadcast: function(msg) {
         if (this.isHost && this.connections) {
             this.connections.forEach(c => c.send(msg));
-            // Loopback
             if(msg.type === 'SYNC_STATE') this.gameState = msg.state;
         } else if (this.conn) {
-            this.conn.send(msg); // Send to host
+            this.conn.send(msg); 
         }
     },
 
     // Actions
     hostGame: function() {
         this.isHost = true;
-        this.lobbyPlayers = [{
+        // Initial Slot (Host)
+        this.lobbySlots = [{
             id: this.peerId,
             name: document.getElementById('player-name').value,
-            faction: document.getElementById('faction-select').value,
-            color: FACTION_COLORS[0],
-            isAlive: true,
-            gold: 0, techs: []
+            type: 'HUMAN',
+            faction: 'PEASANT_REBELLION',
+            ready: true
         }];
+        // Add one AI by default
+        this.addSlot();
+        
         this.switchView('LOBBY');
         this.renderLobby();
     },
@@ -725,23 +797,77 @@ const gameApp = {
             conn.send({
                 type: 'JOIN_REQUEST',
                 player: {
-                    name: document.getElementById('player-name').value,
-                    faction: document.getElementById('faction-select').value
+                    name: document.getElementById('player-name').value
                 }
             });
             this.switchView('LOBBY');
         });
     },
 
+    addSlot: function() {
+        if(this.lobbySlots.length >= 5) return;
+        this.lobbySlots.push({
+            id: null,
+            name: `AI Player ${this.lobbySlots.length}`,
+            type: 'CPU',
+            difficulty: 'MEDIUM',
+            faction: FACTION_TYPES[this.lobbySlots.length % FACTION_TYPES.length],
+            ready: true
+        });
+        this.broadcast({ type: 'LOBBY_UPDATE', slots: this.lobbySlots });
+        this.renderLobby();
+    },
+    
+    updateSlot: function(idx, field, value) {
+        if(!this.isHost) return;
+        this.lobbySlots[idx][field] = value;
+        this.broadcast({ type: 'LOBBY_UPDATE', slots: this.lobbySlots });
+        this.renderLobby();
+    },
+    
+    removeSlot: function(idx) {
+        if(!this.isHost) return;
+        this.lobbySlots.splice(idx, 1);
+        this.broadcast({ type: 'LOBBY_UPDATE', slots: this.lobbySlots });
+        this.renderLobby();
+    },
+
     startGame: function() {
         if(!this.isHost) return;
         const config = { mapType: document.getElementById('map-type').value };
-        const initialState = GameEngine.createInitialState(config, this.lobbyPlayers);
+        const initialState = GameEngine.createInitialState(config, this.lobbySlots);
         this.gameState = initialState;
         this.broadcast({ type: 'SYNC_STATE', state: initialState });
         this.switchView('GAME');
         this.resizeCanvas();
         this.renderGame();
+    },
+
+    gameLoop: function() {
+        if (!this.gameState || !this.isHost) return;
+        
+        // Timer Logic
+        if (this.gameState.timeLeft > 0) {
+            this.gameState.timeLeft--;
+        } else {
+            this.endTurn(); // Force end turn
+            return;
+        }
+        
+        // Broadcast timer update every second (optimized: could be local but sync helps)
+        // To avoid spamming, we assume clients decrement locally and we just sync on turn change,
+        // BUT for strict enforcement host sends state. 
+        // For this demo, we will just update local UI and sync state on significant events, 
+        // or rely on clients trusting the host's "End Turn" signal.
+        
+        // AI Turn
+        const currP = this.gameState.players[this.gameState.currentPlayerIndex];
+        if (currP.type === 'CPU') {
+            // Throttle AI calls
+            if (Math.random() > 0.8) AIPlayer.processTurn(this, this.gameState);
+        }
+
+        this.updateHUD();
     },
 
     switchView: function(viewName) {
@@ -763,41 +889,74 @@ const gameApp = {
     },
 
     renderLobby: function() {
-        const list = document.getElementById('lobby-player-list');
+        const list = document.getElementById('lobby-slots');
         list.innerHTML = '';
-        this.lobbyPlayers.forEach(p => {
+        
+        this.lobbySlots.forEach((slot, idx) => {
             const div = document.createElement('div');
             div.className = 'player-item';
+            
+            // Color indicator
+            const color = FACTION_COLORS[idx % FACTION_COLORS.length];
+            
+            // Slot Type Selector (Host only)
+            const typeSelect = this.isHost ? `
+                <select onchange="gameApp.updateSlot(${idx}, 'type', this.value)">
+                    <option value="HUMAN" ${slot.type==='HUMAN'?'selected':''}>Human</option>
+                    <option value="CPU" ${slot.type==='CPU'?'selected':''}>CPU</option>
+                </select>
+            ` : slot.type;
+            
+             // Faction Selector (Host only)
+            const factionSelect = this.isHost ? `
+                <select onchange="gameApp.updateSlot(${idx}, 'faction', this.value)">
+                    ${FACTION_TYPES.map(f => `<option value="${f}" ${slot.faction===f?'selected':''}>${f}</option>`).join('')}
+                </select>
+            ` : slot.faction;
+
+            // Name (Editable if CPU)
+            const nameDisplay = (slot.type === 'CPU' && this.isHost) 
+                ? `<input type="text" value="${slot.name}" onchange="gameApp.updateSlot(${idx}, 'name', this.value)" style="margin:0;padding:5px;">` 
+                : `<span>${slot.name} ${slot.id ? '(Connected)' : '(Waiting...)'}</span>`;
+
+            // Remove button (Host only, not for self)
+            const removeBtn = (this.isHost && idx !== 0) 
+                ? `<button class="danger" onclick="gameApp.removeSlot(${idx})" style="padding:5px; font-size:0.8rem;">X</button>` 
+                : ``;
+
             div.innerHTML = `
-                <div style="display:flex;align-items:center;gap:10px;">
-                    <div style="width:15px;height:15px;border-radius:50%;background:${p.color}"></div>
-                    <div>${p.name} <span style="font-size:0.8em;color:#aaa">(${p.faction})</span></div>
-                </div>
-                <div style="color:#a3be8c">READY</div>
+                <div style="width:20px;height:20px;border-radius:50%;background:${color}"></div>
+                ${nameDisplay}
+                ${typeSelect}
+                ${factionSelect}
+                ${removeBtn}
             `;
             list.appendChild(div);
         });
     },
 
-    // GAMEPLAY
-    
-    handleCanvasClick: function(e) {
-        if (!this.gameState) return;
-        const rect = e.target.getBoundingClientRect();
+    // GAMEPLAY WRAPPERS
+    handleCanvasClick: function(e) { 
+        // Prevent clicks if CPU turn
+        const p = this.gameState.players[this.gameState.currentPlayerIndex];
+        if (p.type === 'CPU') return;
         
-        // ISO Coords calculation
+        // Prevent clicks if not your turn (unless host debugging)
+        if (p.id !== this.peerId) return;
+
+        // Call engine logic (same as before)
+        // ... (Copy logic from v1.0 but simplified for brevity in this prompt, full logic below)
+        this.doTileClickLogic(e);
+    },
+    
+    doTileClickLogic: function(e) {
+        // ... (Logic moved to separate function to keep cleaner)
+         if (!this.gameState) return;
+        const rect = e.target.getBoundingClientRect();
         const screenX = e.clientX - rect.left;
         const screenY = e.clientY - rect.top;
-        
-        // Simple approximation for click detection on tile grid (not perfect ISO picking but works for grid)
-        // Reverse projection:
-        // screenX = (x - y) * TILE_WIDTH/2 + OFFSET_X
-        // screenY = (x + y) * TILE_HEIGHT/2 + OFFSET_Y
-        // This is complex. Let's do a simple distance check against all rendered tile centers for robustness.
-        
         const offsetX = e.target.width / 2;
         const offsetY = 100;
-        
         let bestTile = null;
         let minDst = 9999;
 
@@ -806,23 +965,18 @@ const gameApp = {
                 const t = this.gameState.map[r][c];
                 const tx = (c - r) * (TILE_SIZE / 2) + offsetX;
                 const ty = (c + r) * (TILE_SIZE / 4) + offsetY;
-                
                 const dist = Math.sqrt(Math.pow(screenX - tx, 2) + Math.pow(screenY - ty, 2));
-                // Approx hit box
                 if (dist < TILE_SIZE/2 && dist < minDst) {
                     minDst = dist;
                     bestTile = t;
                 }
             }
         }
-
-        if (bestTile) {
-            this.onTileInteraction(bestTile.x, bestTile.y);
-        }
+        if (bestTile) this.onTileInteraction(bestTile.x, bestTile.y);
     },
 
     onTileInteraction: function(x, y) {
-        const state = this.gameState;
+         const state = this.gameState;
         const currentPlayer = state.players[state.currentPlayerIndex];
         
         // Only allow current player to act
@@ -849,12 +1003,10 @@ const gameApp = {
                      this.sendAction({ type: 'ATTACK', from: {x: this.selection.x, y: this.selection.y}, to: {x, y} });
                      this.selection = null;
                  } else {
-                     // Select new if own unit
                      if(clickedUnit.ownerId === this.peerId) this.selection = {x, y};
                      else this.selection = null;
                  }
             }
-            // Deselect or switch
             else {
                 if(clickedUnit && clickedUnit.ownerId === this.peerId) this.selection = {x, y};
                 else this.selection = null;
@@ -864,81 +1016,56 @@ const gameApp = {
                 this.selection = {x, y};
             }
         }
-        
         this.renderGame();
         this.updateHUD();
     },
 
     sendAction: function(action) {
-        // For simplicity, we'll process locally then broadcast state
-        // In a real authoritative server, we'd send the action request.
-        // Here we act as "host" for logic if we are host, or if P2P we trust clients (insecure but simple).
-        // Actually, let's update state locally if valid then broadcast 'SYNC_STATE'
-        
         // Clone state
         const newState = JSON.parse(JSON.stringify(this.gameState));
         const player = newState.players[newState.currentPlayerIndex];
         
+        // ... (Same Logic as v1.0 but added here for completeness)
         if (action.type === 'MOVE') {
             const u = newState.map[action.from.y][action.from.x].unit;
             newState.map[action.to.y][action.to.x].unit = u;
             newState.map[action.from.y][action.from.x].unit = null;
             u.movesLeft -= 1;
-            
-            // Capture land
             if (newState.map[action.to.y][action.to.x].terrain === TERRAIN.LAND) {
                 newState.map[action.to.y][action.to.x].ownerId = player.id;
             }
             newState.logs.unshift(`${player.name} moved ${UNITS[u.type].name}`);
         }
-        
         if (action.type === 'ATTACK') {
             const attacker = newState.map[action.from.y][action.from.x].unit;
             const defender = newState.map[action.to.y][action.to.x].unit;
-            
-            // Simple Combat Math
-            const dmg = Math.max(0, UNITS[attacker.type].atk - (UNITS[defender.type].def * 0.1)); // Simplified
-            let finalDmg = 1; // Min damage
-            
-            // Rock Paper Scissors mods
+            const dmg = Math.max(0, UNITS[attacker.type].atk - (UNITS[defender.type].def * 0.1)); 
+            let finalDmg = 1; 
             if(attacker.type === 'KNIGHT' && defender.type === 'ARCHER') finalDmg = 2;
             if(attacker.type === 'ARCHER' && defender.type === 'PEASANT') finalDmg = 1;
-            
             defender.hp -= finalDmg;
             attacker.hasAttacked = true;
             attacker.movesLeft = 0;
-            
             newState.logs.unshift(`${player.name}'s ${UNITS[attacker.type].name} hit ${UNITS[defender.type].name} for ${finalDmg} dmg!`);
-            
             if (defender.hp <= 0) {
                  newState.map[action.to.y][action.to.x].unit = null;
                  newState.logs.unshift(`Enemy unit destroyed!`);
             }
         }
-
-        if (action.type === 'END_TURN') {
-            GameEngine.nextTurn(newState);
-        }
-        
+        if (action.type === 'END_TURN') GameEngine.nextTurn(newState);
         if (action.type === 'BUY_UNIT') {
-             // Find spawn
-             // Simplified: spawn at any owned structure that is suitable
              let spawned = false;
              const cost = UNITS[action.unitType].cost;
-             
-             // Apply Faction Discounts
              let actualCost = cost;
              if (player.faction === 'PEASANT_REBELLION' && action.unitType === 'PEASANT') actualCost -= 1;
              if (player.faction === 'MARITIME_MERCHANTS' && action.unitType.includes('BOAT')) actualCost -= 1;
              if (player.faction === 'ORDER_OF_KNIGHTS' && action.unitType === 'KNIGHT') actualCost -= 1;
              
              if (player.gold >= actualCost) {
-                 // Find place
                  for(let r=0; r<MAP_SIZE; r++) {
                      for(let c=0; c<MAP_SIZE; c++) {
                          const t = newState.map[r][c];
                          if(t.ownerId === player.id && !t.unit && t.structure) {
-                             // Check if water unit
                              const isWater = action.unitType.includes('BOAT');
                              const isDock = t.structure.type === 'DOCK';
                              if(isWater === isDock || (!isWater && !isDock)) {
@@ -957,10 +1084,7 @@ const gameApp = {
                      if(spawned) break;
                  }
                  if(spawned) newState.logs.unshift(`${player.name} recruited ${action.unitType}`);
-                 else alert("No valid spawn point (Capital/Fort/Dock) free!");
-             } else {
-                 alert("Not enough gold!");
-             }
+             } 
         }
 
         this.gameState = newState;
@@ -979,10 +1103,11 @@ const gameApp = {
 
     updateHUD: function() {
         if (!this.gameState) return;
-        const myPlayer = this.gameState.players.find(p => p.id === this.peerId);
+        const myPlayer = this.gameState.players.find(p => p.id === this.peerId) || this.gameState.players[0];
         const turnPlayer = this.gameState.players[this.gameState.currentPlayerIndex];
         
-        document.getElementById('turn-indicator').innerText = `Turn ${this.gameState.turn} - ${turnPlayer.name}'s Turn`;
+        document.getElementById('turn-indicator').innerText = `Turn ${this.gameState.turn} - ${turnPlayer.name}`;
+        document.getElementById('timer').innerText = `${this.gameState.timeLeft}s`;
         document.getElementById('gold-display').innerText = myPlayer ? myPlayer.gold : 0;
         
         // Logs
@@ -997,6 +1122,9 @@ const gameApp = {
         
         actionBtns.innerHTML = '';
         
+        // Only show controls if it's MY turn and I am Human
+        const isMyTurn = (turnPlayer.id === this.peerId);
+
         if (this.selection) {
             const tile = this.gameState.map[this.selection.y][this.selection.x];
             if (tile.unit) {
@@ -1008,8 +1136,7 @@ const gameApp = {
                 selTitle.innerText = sInfo.name;
                 selDetails.innerHTML = "Structure";
                 // Recruitment
-                if(tile.ownerId === this.peerId) {
-                    // Add recruit buttons
+                if(tile.ownerId === this.peerId && isMyTurn) {
                     if (tile.structure.type === 'CAPITAL' || tile.structure.type === 'FORT') {
                          ['PEASANT', 'ARCHER', 'KNIGHT', 'CATAPULT'].forEach(ut => {
                              const btn = document.createElement('button');
@@ -1100,8 +1227,7 @@ const gameApp = {
         if (tile.ownerId) {
             const owner = this.gameState.players.find(p => p.id === tile.ownerId);
             if (owner && tile.terrain === TERRAIN.LAND) {
-                // Blending logic could be better but simple overlay
-                // baseColor = owner.color; // Simplification for single file
+                // simple tint
             }
         }
 
@@ -1110,7 +1236,6 @@ const gameApp = {
         
         // Top Face
         ctx.fillStyle = baseColor;
-        // Gradient for water
         if (tile.terrain === TERRAIN.WATER) {
             const grad = ctx.createLinearGradient(x, y-10, x, y+10);
             grad.addColorStop(0, '#4c566a');
@@ -1127,7 +1252,7 @@ const gameApp = {
         ctx.fill();
         ctx.stroke(); // Outline
 
-        // Side Faces (Darker)
+        // Side Faces
         ctx.fillStyle = 'rgba(0,0,0,0.2)';
         ctx.beginPath();
         ctx.moveTo(x - TILE_SIZE/2, y + TILE_SIZE/4 - height);
@@ -1164,15 +1289,12 @@ const gameApp = {
         ctx.save();
         ctx.translate(x, y);
         
-        // Shadow
         ctx.fillStyle = 'rgba(0,0,0,0.5)';
         ctx.beginPath();
         ctx.ellipse(0, 10, 10, 5, 0, 0, Math.PI * 2);
         ctx.fill();
 
-        // Body
         if (isUnit) {
-            // Icon/Shape
             ctx.fillStyle = color;
             ctx.beginPath();
             ctx.arc(0, 0, 8, 0, Math.PI*2);
@@ -1181,12 +1303,10 @@ const gameApp = {
             ctx.lineWidth = 1;
             ctx.stroke();
         } else {
-            // Structure
             ctx.fillStyle = '#4c566a';
             ctx.fillRect(-8, -8, 16, 16);
         }
 
-        // Text Symbol
         ctx.fillStyle = '#fff';
         ctx.font = '10px Lato';
         ctx.textAlign = 'center';
@@ -1207,15 +1327,12 @@ const gameApp = {
     },
     
     leaveLobby: function() {
-        // Reset logic
         location.reload(); 
     }
 };
 
-// Boot
 window.onload = () => gameApp.init();
 
 </script>
 </body>
 </html>
-
