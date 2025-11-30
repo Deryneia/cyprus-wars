@@ -801,7 +801,7 @@ class GameEngine {
         if (player.techs.includes('BANKING')) income += Math.floor(player.gold * 0.05);
         return Math.floor(income);
     }
-
+    
     static nextTurn(state) {
         let nextIdx = (state.currentPlayerIndex + 1) % state.players.length;
         let loopGuard = 0;
@@ -825,7 +825,7 @@ class GameEngine {
                 }
             }
         }
-        
+
         // Process Auto-Moves
         if(player.type === 'HUMAN') { 
              let moved = true;
@@ -1309,9 +1309,9 @@ const gameApp = {
             // STRICT MODE LOGIC
             if (selectedUnit && selectedUnit.ownerId === this.peerId) {
                 if (this.interactionMode === 'MOVE') {
-                    if (GameEngine.canMove(selectedUnit, prevTile, targetTile)) {
-                        this.sendAction({ type: 'MOVE', from: {x: this.selection.x, y: this.selection.y}, to: {x, y} });
-                        this.selection = null;
+            if (GameEngine.canMove(selectedUnit, prevTile, targetTile)) {
+                this.sendAction({ type: 'MOVE', from: {x: this.selection.x, y: this.selection.y}, to: {x, y} });
+                this.selection = null;
                         this.interactionMode = 'NONE';
                     } else if (!targetTile.unit && !targetTile.structure && !GameEngine.canMove(selectedUnit, prevTile, targetTile)) {
                          // Auto-path
@@ -1324,18 +1324,18 @@ const gameApp = {
                     }
                 } else if (this.interactionMode === 'ATTACK') {
                     if (clickedUnit && clickedUnit.ownerId !== this.peerId) {
-                         const dist = Math.abs(x - this.selection.x) + Math.abs(y - this.selection.y);
-                         if (dist <= UNITS[selectedUnit.type].range && !selectedUnit.hasAttacked) {
-                             this.sendAction({ type: 'ATTACK', from: {x: this.selection.x, y: this.selection.y}, to: {x, y} });
-                             this.selection = null;
+                 const dist = Math.abs(x - this.selection.x) + Math.abs(y - this.selection.y);
+                 if (dist <= UNITS[selectedUnit.type].range && !selectedUnit.hasAttacked) {
+                     this.sendAction({ type: 'ATTACK', from: {x: this.selection.x, y: this.selection.y}, to: {x, y} });
+                     this.selection = null;
                              this.interactionMode = 'NONE';
-                         }
-                    }
-                }
+                 }
+            }
+            }
                 
                 // If clicking self or changing selection
-                if (clickedUnit && clickedUnit.ownerId === this.peerId) {
-                    this.selection = {x, y};
+            if (clickedUnit && clickedUnit.ownerId === this.peerId) {
+                this.selection = {x, y};
                     this.interactionMode = 'NONE'; // Reset on new selection
                 } else if (targetTile.structure && targetTile.ownerId === this.peerId) {
                     this.selection = {x, y};
@@ -1446,27 +1446,59 @@ const gameApp = {
              if (player.faction === 'ORDER_OF_KNIGHTS' && action.unitType === 'KNIGHT') actualCost -= 1;
              
              if (player.gold >= actualCost) {
+                 // Find valid spawn point (Capital/Fort/Dock or adjacent)
+                 const spawnCandidates = [];
+                 // 1. Find all owned structures that can spawn this type
                  for(let r=0; r<MAP_SIZE; r++) {
                      for(let c=0; c<MAP_SIZE; c++) {
                          const t = newState.map[r][c];
-                         if(t.ownerId === player.id && !t.unit && t.structure) {
+                         if(t.ownerId === player.id && t.structure) {
                              const isWater = action.unitType.includes('BOAT');
                              const isDock = t.structure.type === 'DOCK';
-                             if(isWater === isDock || (!isWater && !isDock)) {
+                             // Logic: Boats need Docks, Land units need Capital/Fort
+                             // Exception: Can land units spawn at Docks? Usually no. Can boats spawn at Capital? No.
+                             let canSpawn = false;
+                             if (isWater && isDock) canSpawn = true;
+                             if (!isWater && (t.structure.type === 'CAPITAL' || t.structure.type === 'FORT')) canSpawn = true;
+                             
+                             if(canSpawn) {
+                                 // Check structure tile itself
+                                 if(!t.unit) spawnCandidates.push(t);
+                                 // Check neighbors
+                                 const neighbors = [
+                                     {x:c+1,y:r}, {x:c-1,y:r}, {x:c,y:r+1}, {x:c,y:r-1}
+                                 ];
+                                 neighbors.forEach(n => {
+                                     if(n.x>=0 && n.x<MAP_SIZE && n.y>=0 && n.y<MAP_SIZE) {
+                                         const nt = newState.map[n.y][n.x];
+                                         if(!nt.unit && !nt.structure) { // Don't spawn on other structures
+                                             if(isWater && nt.terrain === TERRAIN.WATER) spawnCandidates.push(nt);
+                                             if(!isWater && nt.terrain === TERRAIN.LAND) spawnCandidates.push(nt);
+                                         }
+                                     }
+                                 });
+                             }
+                         }
+                     }
+                 }
+                 
+                 if(spawnCandidates.length > 0) {
+                     // Pick first valid or random? First valid is fine.
+                     // Actually prefer structure tile if available
+                     spawnCandidates.sort((a,b) => (a.structure ? -1 : 1));
+                     
+                     const t = spawnCandidates[0];
                                  t.unit = {
                                      id: `u_${Math.random()}`,
                                      type: action.unitType,
                                      ownerId: player.id,
-                                     hp: 5, maxHp: 5, movesLeft: 0, hasAttacked: true, path: []
+                         hp: 5, maxHp: 5, movesLeft: 0, hasAttacked: true, path: []
                                  };
                                  player.gold -= actualCost;
                                  spawned = true;
-                                 break;
-                             }
-                         }
-                     }
-                     if(spawned) break;
+                     if(t.terrain === TERRAIN.LAND) t.ownerId = player.id; // Claim tile if spawning outside
                  }
+
                  if(spawned) newState.logs.unshift(`${player.name} recruited ${action.unitType}`);
              } 
         }
@@ -1484,7 +1516,7 @@ const gameApp = {
                  t.unit = null; // Consume unit
                  t.structure = { type: 'FORT', hp: 10, ownerId: player.id };
                  newState.logs.unshift(`${player.name} built a Fort.`);
-            }
+             }
         }
 
         this.gameState = newState;
@@ -1653,8 +1685,8 @@ const gameApp = {
             indicator.innerText = `YOUR TURN (Turn ${this.gameState.turn})`;
             indicator.style.color = "#a3be8c";
         } else {
-            indicator.innerText = `Waiting for ${turnPlayer.name}...`;
-            indicator.style.color = "#eceff4";
+            indicator.innerText = `ENEMY TURN: ${turnPlayer.name}`;
+            indicator.style.color = "#bf616a"; // Red/Orange for enemy
         }
         
         document.getElementById('timer').innerText = `${this.gameState.timeLeft}s`;
@@ -1678,7 +1710,7 @@ const gameApp = {
         } else {
             turnControls.classList.add('hidden');
         }
-
+        
         if (this.selection) {
             const tile = this.gameState.map[this.selection.y][this.selection.x];
             if (tile.unit) {
@@ -1733,11 +1765,11 @@ const gameApp = {
                              if ((ut === 'TRADE_BOAT' || ut === 'WAR_BOAT') && !myPlayer.techs.includes('FISHING')) unlocked = false;
                              
                              if (unlocked) {
-                                 const btn = document.createElement('button');
-                                 btn.className = 'action-btn';
-                                 btn.innerText = `Recruit ${UNITS[ut].name} (${UNITS[ut].cost}g)`;
-                                 btn.onclick = () => this.buyUnit(ut);
-                                 actionBtns.appendChild(btn);
+                             const btn = document.createElement('button');
+                             btn.className = 'action-btn';
+                             btn.innerText = `Recruit ${UNITS[ut].name} (${UNITS[ut].cost}g)`;
+                             btn.onclick = () => this.buyUnit(ut);
+                             actionBtns.appendChild(btn);
                              }
                          });
                     }
@@ -1892,14 +1924,14 @@ const gameApp = {
                 if (this.selection) {
                     // Selection Ring
                     if (this.selection.x === c && this.selection.y === r) {
-                        ctx.save();
-                        ctx.strokeStyle = '#ebcb8b';
-                        ctx.lineWidth = 2;
-                        ctx.shadowColor = '#ebcb8b';
-                        ctx.shadowBlur = 10;
-                        this.drawIsoRect(ctx, isoX, isoY, TILE_SIZE);
-                        ctx.restore();
-                    }
+                    ctx.save();
+                    ctx.strokeStyle = '#ebcb8b';
+                    ctx.lineWidth = 2;
+                    ctx.shadowColor = '#ebcb8b';
+                    ctx.shadowBlur = 10;
+                    this.drawIsoRect(ctx, isoX, isoY, TILE_SIZE);
+                    ctx.restore();
+                }
                     
                     const selTile = map[this.selection.y][this.selection.x];
                     if (selTile.unit && selTile.unit.ownerId === this.peerId) {
@@ -2120,8 +2152,8 @@ const gameApp = {
                 ctx.arc(10, -14, 4, 0, Math.PI*2);
                 ctx.fill();
                 ctx.strokeStyle = '#2e3440';
-                ctx.lineWidth = 1;
-                ctx.stroke();
+            ctx.lineWidth = 1;
+            ctx.stroke();
             }
             
         } else {
