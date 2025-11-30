@@ -556,12 +556,25 @@ class GameEngine {
             if(sp) {
                 map[sp.y][sp.x].structure = { type: 'CAPITAL', hp: 30, ownerId: p.id };
                 map[sp.y][sp.x].ownerId = p.id;
-                map[sp.y][sp.x].unit = {
+                
+                // Spawn Initial Peasant Adjacent
+                const neighbors = [
+                     {x:sp.x+1,y:sp.y}, {x:sp.x-1,y:sp.y}, {x:sp.x,y:sp.y+1}, {x:sp.x,y:sp.y-1}
+                ];
+                for(let n of neighbors) {
+                    if(n.x>=0 && n.x<MAP_SIZE && n.y>=0 && n.y<MAP_SIZE) {
+                        if(map[n.y][n.x].terrain === TERRAIN.LAND) {
+                            map[n.y][n.x].unit = {
                     id: `u_${Math.random()}`,
                     type: 'PEASANT',
                     ownerId: p.id,
-                    hp: 1, maxHp: 1, movesLeft: 1, hasAttacked: false, path: []
-                };
+                                hp: 1, maxHp: 1, movesLeft: 1, hasAttacked: false, path: []
+                            };
+                            map[n.y][n.x].ownerId = p.id;
+                            break; 
+                        }
+                    }
+                }
             }
         });
 
@@ -722,7 +735,7 @@ class GameEngine {
 
     static canMove(unit, fromTile, toTile) {
         if (unit.movesLeft <= 0) return false;
-        if (toTile.unit) return false; 
+        if (toTile.unit && toTile.unit !== unit) return false; // Blocked by another unit (ignore self)
         
         const dx = Math.abs(fromTile.x - toTile.x);
         const dy = Math.abs(fromTile.y - toTile.y);
@@ -732,7 +745,7 @@ class GameEngine {
 
         const isBoat = unit.type.includes('BOAT');
         if (isBoat && toTile.terrain !== TERRAIN.WATER) return false;
-        if (!isBoat && toTile.terrain === TERRAIN.WATER && !toTile.structure) return false; 
+        if (!isBoat && toTile.terrain === TERRAIN.WATER && !toTile.structure) return false; // Can move into Docks
         if (toTile.terrain === TERRAIN.MOUNTAIN) return false; 
 
         return true;
@@ -1814,13 +1827,23 @@ const gameApp = {
                     btnMove.className = 'action-btn';
                     btnMove.style.background = this.interactionMode === 'MOVE' ? '#88c0d0' : '#4c566a';
                     btnMove.innerText = "Move";
-                    btnMove.onclick = () => { this.interactionMode = 'MOVE'; this.renderGame(); this.updateHUD(); };
+                    btnMove.onclick = (e) => { 
+                        e.stopPropagation(); // Prevent click-through
+                        this.interactionMode = 'MOVE'; 
+                        this.renderGame(); 
+                        this.updateHUD(); 
+                    };
                     
                     const btnAttack = document.createElement('button');
                     btnAttack.className = 'action-btn';
                     btnAttack.style.background = this.interactionMode === 'ATTACK' ? '#bf616a' : '#4c566a';
                     btnAttack.innerText = "Attack";
-                    btnAttack.onclick = () => { this.interactionMode = 'ATTACK'; this.renderGame(); this.updateHUD(); };
+                    btnAttack.onclick = (e) => { 
+                        e.stopPropagation();
+                        this.interactionMode = 'ATTACK'; 
+                        this.renderGame(); 
+                        this.updateHUD(); 
+                    };
                     
                     btnContainer.appendChild(btnMove);
                     btnContainer.appendChild(btnAttack);
