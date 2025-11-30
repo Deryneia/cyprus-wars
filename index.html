@@ -1,4 +1,4 @@
-<!-- Strategic Dominion: Cyprus Wars - v1.5.0 -->
+<!-- Strategic Dominion: Cyprus Wars - v1.6.0 -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -365,7 +365,7 @@
                 <div id="selection-details" style="font-size: 0.8rem; margin-bottom: 10px;"></div>
                 <div id="action-buttons"></div>
             </div>
-            <div style="border-top: 1px solid #666; margin-top: 5px; padding-top: 5px;">
+            <div id="turn-controls" style="border-top: 1px solid #666; margin-top: 5px; padding-top: 5px;">
                 <button class="action-btn" onclick="gameApp.toggleDiplomacy()">Diplomacy</button>
                 <button class="action-btn" onclick="gameApp.toggleTechTree()">Research</button>
                 <button class="action-btn" style="background: #bf616a;" onclick="gameApp.endTurn()">End Turn</button>
@@ -448,20 +448,20 @@ const TERRAIN = {
 };
 
 const UNITS = {
-    PEASANT: { name: "Peasant", cost: 2, atk: 1, def: 1, range: 1, move: 1, sym: "P" },
-    ARCHER: { name: "Archer", cost: 3, atk: 1, def: 1, range: 2, move: 1, sym: "A" },
-    KNIGHT: { name: "Knight", cost: 4, atk: 1, def: 2, range: 1, move: 2, sym: "K" }, // Requires Iron
-    CATAPULT: { name: "Catapult", cost: 5, atk: 1, def: 5, range: 3, move: 1, sym: "C" },
-    TRADE_BOAT: { name: "Trade Boat", cost: 5, atk: 0, def: 1, range: 0, move: 1, sym: "T" },
-    WAR_BOAT: { name: "War Boat", cost: 10, atk: 2, def: 1, range: 1, move: 1, sym: "W" }
+    PEASANT: { name: "Peasant", cost: 2, atk: 1, def: 1, range: 1, move: 1, sym: "♟️" },
+    ARCHER: { name: "Archer", cost: 3, atk: 1, def: 1, range: 2, move: 1, sym: "🏹" },
+    KNIGHT: { name: "Knight", cost: 4, atk: 1, def: 2, range: 1, move: 3, sym: "♞" }, // Requires Iron
+    CATAPULT: { name: "Catapult", cost: 5, atk: 1, def: 5, range: 3, move: 1, sym: "☄️" },
+    TRADE_BOAT: { name: "Trade Boat", cost: 5, atk: 0, def: 1, range: 0, move: 1, sym: "⛵" },
+    WAR_BOAT: { name: "War Boat", cost: 10, atk: 2, def: 1, range: 1, move: 1, sym: "🛶" }
 };
 
 const STRUCTURES = {
-    CAPITAL: { name: "Capital", hp: 30, sym: "★" },
-    FORT: { name: "Fort", hp: 10, sym: "♜" },
+    CAPITAL: { name: "Capital", hp: 30, sym: "🏰" },
+    FORT: { name: "Fort", hp: 10, sym: "🏯" },
     DOCK: { name: "Dock", hp: 10, sym: "⚓" },
-    MINE_GOLD: { name: "Gold Mine", hp: 5, sym: "G" },
-    MINE_IRON: { name: "Iron Mine", hp: 5, sym: "Fe" }
+    MINE_GOLD: { name: "Gold Mine", hp: 5, sym: "💰" },
+    MINE_IRON: { name: "Iron Mine", hp: 5, sym: "⛏️" }
 };
 
 const TECHS = {
@@ -601,7 +601,7 @@ class GameEngine {
         const dy = Math.abs(fromTile.y - toTile.y);
         const dist = dx + dy; 
         
-        if (dist > unit.move) return false; 
+        if (dist > unit.move) return false; // Max jump logic
 
         const isBoat = unit.type.includes('BOAT');
         if (isBoat && toTile.terrain !== TERRAIN.WATER) return false;
@@ -1052,7 +1052,16 @@ const gameApp = {
             const u = newState.map[action.from.y][action.from.x].unit;
             newState.map[action.to.y][action.to.x].unit = u;
             newState.map[action.from.y][action.from.x].unit = null;
-            u.movesLeft -= 1;
+            
+            // COST: 1 point per move action usually, but Knight has multiple steps?
+            // Since canMove validates distance, we just deduct the move cost if successful.
+            // If Knight moves 3 tiles in one go, we deduct all?
+            // Our logic is simple: 1 move action consumes the unit's turn mostly, or reduces movesLeft.
+            // Knight has 3 moves. moving 1 tile costs 1. moving 3 costs 3?
+            const dist = Math.abs(action.from.x - action.to.x) + Math.abs(action.from.y - action.to.y);
+            u.movesLeft -= dist; // Consume moves based on distance travelled
+            if (u.movesLeft < 0) u.movesLeft = 0; // Clamp
+
             if (newState.map[action.to.y][action.to.x].terrain === TERRAIN.LAND) {
                 newState.map[action.to.y][action.to.x].ownerId = player.id;
             }
@@ -1281,9 +1290,17 @@ const gameApp = {
         const selTitle = document.getElementById('selection-title');
         const selDetails = document.getElementById('selection-details');
         const actionBtns = document.getElementById('action-buttons');
+        const turnControls = document.getElementById('turn-controls');
         
         actionBtns.innerHTML = '';
         const isMyTurn = (turnPlayer.id === this.peerId);
+        
+        // Hide Turn Controls if not my turn
+        if (isMyTurn) {
+            turnControls.classList.remove('hidden');
+        } else {
+            turnControls.classList.add('hidden');
+        }
 
         if (this.selection) {
             const tile = this.gameState.map[this.selection.y][this.selection.x];
@@ -1385,6 +1402,7 @@ const gameApp = {
         const map = this.gameState.map;
         const offsetX = cvs.width / 2;
         const offsetY = 100;
+        const myPlayerId = this.peerId;
 
         for(let r=0; r<map.length; r++) {
             for(let c=0; c<map[0].length; c++) {
@@ -1399,14 +1417,42 @@ const gameApp = {
                 
                 this.drawTile(ctx, isoX, isoY, t);
                 
-                if (this.selection && this.selection.x === c && this.selection.y === r) {
-                    ctx.save();
-                    ctx.strokeStyle = '#ebcb8b';
-                    ctx.lineWidth = 2;
-                    ctx.shadowColor = '#ebcb8b';
-                    ctx.shadowBlur = 10;
-                    this.drawIsoRect(ctx, isoX, isoY, TILE_SIZE);
-                    ctx.restore();
+                // SELECTION & HIGHLIGHTS
+                if (this.selection) {
+                    if (this.selection.x === c && this.selection.y === r) {
+                        ctx.save();
+                        ctx.strokeStyle = '#ebcb8b';
+                        ctx.lineWidth = 2;
+                        ctx.shadowColor = '#ebcb8b';
+                        ctx.shadowBlur = 10;
+                        this.drawIsoRect(ctx, isoX, isoY, TILE_SIZE);
+                        ctx.restore();
+                    }
+                    
+                    // Show Range / Valid Moves for Selected Unit
+                    const selTile = map[this.selection.y][this.selection.x];
+                    if (selTile.unit && selTile.unit.ownerId === myPlayerId) {
+                        const dist = Math.abs(c - this.selection.x) + Math.abs(r - this.selection.y);
+                        
+                        // Move Highlight (Blue)
+                        if (GameEngine.canMove(selTile.unit, selTile, t)) {
+                            this.drawOverlay(ctx, isoX, isoY, 'rgba(136, 192, 208, 0.3)');
+                        }
+                        
+                        // Attack Highlight (Red)
+                        const range = UNITS[selTile.unit.type].range;
+                        if (dist <= range && dist > 0) {
+                            this.drawOverlay(ctx, isoX, isoY, 'rgba(191, 97, 106, 0.2)');
+                            // Stronger red border if enemy
+                            if (t.unit && t.unit.ownerId !== myPlayerId) {
+                                ctx.save();
+                                ctx.strokeStyle = '#bf616a';
+                                ctx.lineWidth = 2;
+                                this.drawIsoRect(ctx, isoX, isoY, TILE_SIZE);
+                                ctx.restore();
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -1470,45 +1516,63 @@ const gameApp = {
         ctx.stroke();
 
         if (tile.structure) {
-            this.drawEntity(ctx, x, y - height - 10, STRUCTURES[tile.structure.type].sym, '#d8dee9');
+            this.drawEntity(ctx, x, y - height - 10, STRUCTURES[tile.structure.type].sym, '#d8dee9', false, false);
         }
 
         if (tile.unit) {
             const u = tile.unit;
             const owner = this.gameState.players.find(p => p.id === u.ownerId);
-            this.drawEntity(ctx, x, y - height - 15, UNITS[u.type].sym, owner.color, true);
+            const isSpent = (u.movesLeft <= 0 && u.hasAttacked);
+            this.drawEntity(ctx, x, y - height - 15, UNITS[u.type].sym, owner.color, true, isSpent);
         }
     },
 
-    drawEntity: function(ctx, x, y, symbol, color, isUnit = false) {
+    drawEntity: function(ctx, x, y, symbol, color, isUnit = false, isSpent = false) {
         ctx.save();
         ctx.translate(x, y);
         
+        // Shadow
         ctx.fillStyle = 'rgba(0,0,0,0.5)';
         ctx.beginPath();
-        ctx.ellipse(0, 10, 10, 5, 0, 0, Math.PI * 2);
+        ctx.ellipse(0, 8, 10, 5, 0, 0, Math.PI * 2);
         ctx.fill();
 
         if (isUnit) {
-            ctx.fillStyle = color;
+            // Unit Circle Background
+            ctx.fillStyle = isSpent ? '#4c566a' : color; // Gray if spent
             ctx.beginPath();
-            ctx.arc(0, 0, 8, 0, Math.PI*2);
+            ctx.arc(0, -5, 12, 0, Math.PI*2);
             ctx.fill();
             ctx.strokeStyle = '#fff';
             ctx.lineWidth = 1;
             ctx.stroke();
         } else {
+            // Structure Base
             ctx.fillStyle = '#4c566a';
-            ctx.fillRect(-8, -8, 16, 16);
+            ctx.fillRect(-10, -15, 20, 20);
         }
 
+        // Symbol (Emoji)
         ctx.fillStyle = '#fff';
-        ctx.font = '10px Lato';
+        ctx.font = '16px Apple Color Emoji, Segoe UI Emoji, Noto Color Emoji';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillText(symbol, 0, 0);
+        // Center adjustment: Emoji baseline is weird on canvas. 
+        // Translating up slightly (-5) centers it better in the circle.
+        ctx.fillText(symbol, 0, -4); 
 
         ctx.restore();
+    },
+    
+    drawOverlay: function(ctx, x, y, color) {
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        ctx.lineTo(x + TILE_SIZE/2, y + TILE_SIZE/4);
+        ctx.lineTo(x, y + TILE_SIZE/2);
+        ctx.lineTo(x - TILE_SIZE/2, y + TILE_SIZE/4);
+        ctx.closePath();
+        ctx.fillStyle = color;
+        ctx.fill();
     },
 
     drawIsoRect: function(ctx, x, y, size) {
