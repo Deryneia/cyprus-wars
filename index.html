@@ -1002,7 +1002,10 @@ const gameApp = {
         });
         window.addEventListener('mouseup', (e) => {
             this.isMouseDown = false;
-            if(!this.isDragging) {
+            // Relaxed Drag Check: Only drag if moved more than 5px
+            const dist = Math.sqrt(Math.pow(e.clientX - this.startMouse.x, 2) + Math.pow(e.clientY - this.startMouse.y, 2));
+            
+            if(dist < 5) {
                 this.doTileClickLogic(e);
             }
             this.isDragging = false;
@@ -1014,15 +1017,14 @@ const gameApp = {
             if(this.isMouseDown && this.lastMouse) {
                  const dx = e.clientX - this.lastMouse.x;
                  const dy = e.clientY - this.lastMouse.y;
-                 // Drag threshold
-                 if (Math.abs(e.clientX - this.startMouse.x) > 5 || Math.abs(e.clientY - this.startMouse.y) > 5) {
-                     this.isDragging = true;
-                 }
+                 // Drag threshold logic inside movement
+                 const dist = Math.sqrt(Math.pow(e.clientX - this.startMouse.x, 2) + Math.pow(e.clientY - this.startMouse.y, 2));
                  
-                 if(this.isDragging) {
-                    this.camera.x += dx;
-                    this.camera.y += dy;
-                    this.renderGame();
+                 if (dist > 5) {
+                     this.isDragging = true;
+                     this.camera.x += dx;
+                     this.camera.y += dy;
+                     this.renderGame();
                  }
                  this.lastMouse = { x: e.clientX, y: e.clientY };
             }
@@ -1339,65 +1341,61 @@ const gameApp = {
             const prevTile = state.map[this.selection.y][this.selection.x];
             const selectedUnit = prevTile.unit;
             
-                    // Strict Mode Handling
-                    if (this.interactionMode === 'MOVE') {
-                        const isMoveValid = GameEngine.canMove(selectedUnit, prevTile, targetTile);
-                        const isAutoPath = !targetTile.unit && !targetTile.structure && !isMoveValid;
-                        
-                        if (isMoveValid) {
+            // ACTION MODE: MOVE
+            if (this.interactionMode === 'MOVE' && selectedUnit && selectedUnit.ownerId === this.peerId) {
+                const isMoveValid = GameEngine.canMove(selectedUnit, prevTile, targetTile);
+                const isAutoPath = !targetTile.unit && !targetTile.structure && !isMoveValid;
+                
+                if (isMoveValid) {
                 this.sendAction({ type: 'MOVE', from: {x: this.selection.x, y: this.selection.y}, to: {x, y} });
                 this.selection = null;
-                            this.interactionMode = 'NONE';
-                            this.renderGame();
-                            this.updateHUD();
-                            return; 
-                        } else if (isAutoPath) {
-                             const path = GameEngine.findPath(state.map, selectedUnit, {x: this.selection.x, y: this.selection.y}, {x, y});
-                             if (path && path.length > 0) {
-                                 this.sendAction({ type: 'SET_PATH', from: {x: this.selection.x, y: this.selection.y}, path: path });
-                                 this.selection = null;
-                                 this.interactionMode = 'NONE';
-                                 this.renderGame();
-                                 this.updateHUD();
-                                 return;
-                             }
-                        }
-                        // If invalid move, DO NOT fall through to selection logic.
-                        // Just stay in move mode.
-                        return; 
-                        
-                    } else if (this.interactionMode === 'ATTACK') {
-                        if (clickedUnit && clickedUnit.ownerId !== this.peerId) {
+                    this.interactionMode = 'NONE';
+                    this.renderGame();
+                    this.updateHUD();
+                    return; 
+                } else if (isAutoPath) {
+                     const path = GameEngine.findPath(state.map, selectedUnit, {x: this.selection.x, y: this.selection.y}, {x, y});
+                     if (path && path.length > 0) {
+                         this.sendAction({ type: 'SET_PATH', from: {x: this.selection.x, y: this.selection.y}, path: path });
+                         this.selection = null;
+                         this.interactionMode = 'NONE';
+                         this.renderGame();
+                         this.updateHUD();
+                         return;
+                     }
+                }
+                // If invalid move, DO NOT fall through to selection logic.
+                // Just stay in move mode.
+                return; 
+                
+            } else if (this.interactionMode === 'ATTACK') {
+                if (clickedUnit && clickedUnit.ownerId !== this.peerId) {
                  const dist = Math.abs(x - this.selection.x) + Math.abs(y - this.selection.y);
                  if (dist <= UNITS[selectedUnit.type].range && !selectedUnit.hasAttacked) {
                      this.sendAction({ type: 'ATTACK', from: {x: this.selection.x, y: this.selection.y}, to: {x, y} });
                      this.selection = null;
-                                 this.interactionMode = 'NONE';
-                                 this.renderGame();
-                                 this.updateHUD();
-                                 return;
-                             }
-                        }
-                        // If invalid attack, stay in attack mode.
-                        return;
-                    }
-                    
-                    // New Selection Logic (Only if NOT in a strict mode)
-                    if (this.interactionMode === 'NONE' || (!clickedUnit && !targetTile.structure)) {
-                        // If clicking self or ally, switch selection
-            if (clickedUnit && clickedUnit.ownerId === this.peerId) {
-                this.selection = {x, y};
-                            this.interactionMode = 'NONE'; 
-                        } else if (targetTile.structure && targetTile.ownerId === this.peerId) {
-                            this.selection = {x, y};
-                            this.interactionMode = 'NONE';
-                        } else {
-                            // Deselect if clicking empty space in NONE mode
-                            this.selection = null;
-                            this.interactionMode = 'NONE';
-                        }
-                    }
+                         this.interactionMode = 'NONE';
+                         this.renderGame();
+                         this.updateHUD();
+                         return;
+                     }
+                }
+                // If invalid attack, stay in attack mode.
+                return;
+            }
+            
+            // DEFAULT SELECTION LOGIC (Only if NOT in an action mode)
+            if (this.interactionMode === 'NONE') {
+                // If clicking self or ally or structure, select it
+                if ((clickedUnit && clickedUnit.ownerId === this.peerId) || (targetTile.structure && targetTile.ownerId === this.peerId)) {
+                    this.selection = {x, y};
         } else {
+                    // Deselect if clicking empty space
+                    this.selection = null;
+                }
+            }
+        } else {
+            // Initial Selection
             if ((clickedUnit && clickedUnit.ownerId === this.peerId) || (targetTile.structure && targetTile.ownerId === this.peerId)) {
                 this.selection = {x, y};
                 this.interactionMode = 'NONE';
@@ -1832,10 +1830,10 @@ const gameApp = {
                     const btnMove = document.createElement('button');
                     btnMove.className = 'action-btn';
                     btnMove.style.background = this.interactionMode === 'MOVE' ? '#88c0d0' : '#4c566a';
-                    btnMove.innerText = "Move";
+                    btnMove.innerText = this.interactionMode === 'MOVE' ? "Cancel Move" : "Move";
                     btnMove.onclick = (e) => { 
-                        e.stopPropagation(); // Prevent click-through
-                        this.interactionMode = 'MOVE'; 
+                        e.stopPropagation(); 
+                        this.interactionMode = this.interactionMode === 'MOVE' ? 'NONE' : 'MOVE'; 
                         this.renderGame(); 
                         this.updateHUD(); 
                     };
@@ -1843,10 +1841,10 @@ const gameApp = {
                     const btnAttack = document.createElement('button');
                     btnAttack.className = 'action-btn';
                     btnAttack.style.background = this.interactionMode === 'ATTACK' ? '#bf616a' : '#4c566a';
-                    btnAttack.innerText = "Attack";
+                    btnAttack.innerText = this.interactionMode === 'ATTACK' ? "Cancel Attack" : "Attack";
                     btnAttack.onclick = (e) => { 
                         e.stopPropagation();
-                        this.interactionMode = 'ATTACK'; 
+                        this.interactionMode = this.interactionMode === 'ATTACK' ? 'NONE' : 'ATTACK'; 
                         this.renderGame(); 
                         this.updateHUD(); 
                     };
