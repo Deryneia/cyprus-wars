@@ -469,7 +469,7 @@ const TERRAIN = {
 };
 
 const UNITS = {
-    PEASANT: { name: "Peasant", cost: 2, atk: 1, def: 1, range: 1, move: 1, sym: "🔱" },
+    PEASANT: { name: "Peasant", cost: 2, atk: 1, def: 1, range: 1, move: 1, sym: "🧑‍🌾" },
     ARCHER: { name: "Archer", cost: 3, atk: 1, def: 1, range: 2, move: 1, sym: "🏹" },
     KNIGHT: { name: "Knight", cost: 4, atk: 1, def: 2, range: 1, move: 3, sym: "🐎" }, // Requires Iron
     CATAPULT: { name: "Catapult", cost: 5, atk: 1, def: 5, range: 3, move: 1, sym: "🏗️" },
@@ -925,18 +925,20 @@ const gameApp = {
         
         // Mouse / Touch Events for Interaction
         canvas.addEventListener('mousedown', (e) => {
+            this.isMouseDown = true;
             this.isDragging = false;
             this.lastMouse = { x: e.clientX, y: e.clientY };
             this.startMouse = { x: e.clientX, y: e.clientY };
         });
         window.addEventListener('mouseup', (e) => {
+            this.isMouseDown = false;
             if(!this.isDragging) {
                 this.doTileClickLogic(e);
             }
             this.isDragging = false;
         });
         window.addEventListener('mousemove', (e) => {
-            if(this.lastMouse) {
+            if(this.isMouseDown && this.lastMouse) {
                  const dx = e.clientX - this.lastMouse.x;
                  const dy = e.clientY - this.lastMouse.y;
                  // Drag threshold
