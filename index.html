@@ -939,6 +939,7 @@ const gameApp = {
     lastMouse: { x: 0, y: 0 },
     startMouse: { x: 0, y: 0 },
     hoverTile: null,
+    interactionMode: 'NONE', // NONE, MOVE, ATTACK
     
     visibleTiles: new Set(),
 
@@ -1305,45 +1306,56 @@ const gameApp = {
             const prevTile = state.map[this.selection.y][this.selection.x];
             const selectedUnit = prevTile.unit;
             
-            if (selectedUnit && GameEngine.canMove(selectedUnit, prevTile, targetTile)) {
-                // Single step move
-                this.sendAction({ type: 'MOVE', from: {x: this.selection.x, y: this.selection.y}, to: {x, y} });
-                this.selection = null;
-            }
-            // AUTO-PATHING
-            else if (selectedUnit && !targetTile.unit && !targetTile.structure && !GameEngine.canMove(selectedUnit, prevTile, targetTile)) {
-                 const path = GameEngine.findPath(state.map, selectedUnit, {x: this.selection.x, y: this.selection.y}, {x, y});
-                 if (path && path.length > 0) {
-                     this.sendAction({ type: 'SET_PATH', from: {x: this.selection.x, y: this.selection.y}, path: path });
-                     this.selection = null;
-                 } else {
-                     if((clickedUnit && clickedUnit.ownerId === this.peerId) || (targetTile.structure && targetTile.ownerId === this.peerId)) {
-                        this.selection = {x, y};
-                     } else {
+            // STRICT MODE LOGIC
+            if (selectedUnit && selectedUnit.ownerId === this.peerId) {
+                if (this.interactionMode === 'MOVE') {
+                    if (GameEngine.canMove(selectedUnit, prevTile, targetTile)) {
+                        this.sendAction({ type: 'MOVE', from: {x: this.selection.x, y: this.selection.y}, to: {x, y} });
                         this.selection = null;
-                     }
-                 }
-            }
-            else if (selectedUnit && clickedUnit && clickedUnit.ownerId !== this.peerId) {
-                 const dist = Math.abs(x - this.selection.x) + Math.abs(y - this.selection.y);
-                 if (dist <= UNITS[selectedUnit.type].range && !selectedUnit.hasAttacked) {
-                     this.sendAction({ type: 'ATTACK', from: {x: this.selection.x, y: this.selection.y}, to: {x, y} });
-                     this.selection = null;
-                 } else {
-                     if(clickedUnit.ownerId === this.peerId) this.selection = {x, y};
-                     else this.selection = null;
-                 }
-            }
-            else {
+                        this.interactionMode = 'NONE';
+                    } else if (!targetTile.unit && !targetTile.structure && !GameEngine.canMove(selectedUnit, prevTile, targetTile)) {
+                         // Auto-path
+                         const path = GameEngine.findPath(state.map, selectedUnit, {x: this.selection.x, y: this.selection.y}, {x, y});
+                         if (path && path.length > 0) {
+                             this.sendAction({ type: 'SET_PATH', from: {x: this.selection.x, y: this.selection.y}, path: path });
+                             this.selection = null;
+                             this.interactionMode = 'NONE';
+                         }
+                    }
+                } else if (this.interactionMode === 'ATTACK') {
+                    if (clickedUnit && clickedUnit.ownerId !== this.peerId) {
+                         const dist = Math.abs(x - this.selection.x) + Math.abs(y - this.selection.y);
+                         if (dist <= UNITS[selectedUnit.type].range && !selectedUnit.hasAttacked) {
+                             this.sendAction({ type: 'ATTACK', from: {x: this.selection.x, y: this.selection.y}, to: {x, y} });
+                             this.selection = null;
+                             this.interactionMode = 'NONE';
+                         }
+                    }
+                }
+                
+                // If clicking self or changing selection
+                if (clickedUnit && clickedUnit.ownerId === this.peerId) {
+                    this.selection = {x, y};
+                    this.interactionMode = 'NONE'; // Reset on new selection
+                } else if (targetTile.structure && targetTile.ownerId === this.peerId) {
+                    this.selection = {x, y};
+                    this.interactionMode = 'NONE';
+                }
+                
+            } else {
+                // Structure selected or Enemy selected (observation)
                 if((clickedUnit && clickedUnit.ownerId === this.peerId) || (targetTile.structure && targetTile.ownerId === this.peerId)) {
                     this.selection = {x, y};
+                    this.interactionMode = 'NONE';
                 } else {
                     this.selection = null;
+                    this.interactionMode = 'NONE';
                 }
             }
         } else {
             if ((clickedUnit && clickedUnit.ownerId === this.peerId) || (targetTile.structure && targetTile.ownerId === this.peerId)) {
                 this.selection = {x, y};
+                this.interactionMode = 'NONE';
             }
         }
         this.renderGame();
@@ -1674,12 +1686,36 @@ const gameApp = {
                 selTitle.innerText = uInfo.name;
                 selDetails.innerHTML = `HP: ${tile.unit.hp} | Move: ${tile.unit.movesLeft}`;
                 
-                if(isMyTurn && tile.ownerId === this.peerId && !tile.structure && tile.terrain === TERRAIN.LAND && tile.unit.movesLeft > 0) {
-                    const btn = document.createElement('button');
-                    btn.className = 'action-btn';
-                    btn.innerText = "Build Fort (15g)";
-                    btn.onclick = () => this.buildFort(this.selection.x, this.selection.y);
-                    actionBtns.appendChild(btn);
+                if(isMyTurn && tile.ownerId === this.peerId) {
+                    // MOVE & ATTACK OPTIONS
+                    const btnContainer = document.createElement('div');
+                    btnContainer.style.display = 'flex';
+                    btnContainer.style.gap = '5px';
+                    btnContainer.style.marginBottom = '5px';
+                    
+                    const btnMove = document.createElement('button');
+                    btnMove.className = 'action-btn';
+                    btnMove.style.background = this.interactionMode === 'MOVE' ? '#88c0d0' : '#4c566a';
+                    btnMove.innerText = "Move";
+                    btnMove.onclick = () => { this.interactionMode = 'MOVE'; this.renderGame(); this.updateHUD(); };
+                    
+                    const btnAttack = document.createElement('button');
+                    btnAttack.className = 'action-btn';
+                    btnAttack.style.background = this.interactionMode === 'ATTACK' ? '#bf616a' : '#4c566a';
+                    btnAttack.innerText = "Attack";
+                    btnAttack.onclick = () => { this.interactionMode = 'ATTACK'; this.renderGame(); this.updateHUD(); };
+                    
+                    btnContainer.appendChild(btnMove);
+                    btnContainer.appendChild(btnAttack);
+                    actionBtns.appendChild(btnContainer);
+
+                    if(!tile.structure && tile.terrain === TERRAIN.LAND && tile.unit.movesLeft > 0) {
+                        const btn = document.createElement('button');
+                        btn.className = 'action-btn';
+                        btn.innerText = "Build Fort (15g)";
+                        btn.onclick = () => this.buildFort(this.selection.x, this.selection.y);
+                        actionBtns.appendChild(btn);
+                    }
                 }
                 
             } else if (tile.structure) {
@@ -1869,23 +1905,24 @@ const gameApp = {
                     if (selTile.unit && selTile.unit.ownerId === this.peerId) {
                         const dist = Math.abs(c - this.selection.x) + Math.abs(r - this.selection.y);
                         
-                        // Move Highlight (Blue)
-                        if (GameEngine.canMove(selTile.unit, selTile, t)) {
+                        // Move Highlight (Blue) - Only if in MOVE mode
+                        if (this.interactionMode === 'MOVE' && GameEngine.canMove(selTile.unit, selTile, t)) {
                             this.drawOverlay(ctx, isoX, isoY, 'rgba(136, 192, 208, 0.3)');
                         }
                         
-                        // Attack Highlight (Red)
-                        const range = UNITS[selTile.unit.type].range;
-                        if (dist <= range && dist > 0) {
-                            // Stronger red border if enemy
-                            if (t.unit && t.unit.ownerId !== this.peerId) {
-                                ctx.save();
-                                ctx.fillStyle = 'rgba(191, 97, 106, 0.4)';
-                                this.drawOverlay(ctx, isoX, isoY, 'rgba(191, 97, 106, 0.4)');
-                                ctx.strokeStyle = '#bf616a';
-                                ctx.lineWidth = 2;
-                                this.drawIsoRect(ctx, isoX, isoY, TILE_SIZE);
-                                ctx.restore();
+                        // Attack Highlight (Red) - Only if in ATTACK mode
+                        if (this.interactionMode === 'ATTACK') {
+                            const range = UNITS[selTile.unit.type].range;
+                            if (dist <= range && dist > 0) {
+                                if (t.unit && t.unit.ownerId !== this.peerId) {
+                                    ctx.save();
+                                    ctx.fillStyle = 'rgba(191, 97, 106, 0.4)';
+                                    this.drawOverlay(ctx, isoX, isoY, 'rgba(191, 97, 106, 0.4)');
+                                    ctx.strokeStyle = '#bf616a';
+                                    ctx.lineWidth = 2;
+                                    this.drawIsoRect(ctx, isoX, isoY, TILE_SIZE);
+                                    ctx.restore();
+                                }
                             }
                         }
                     }
@@ -1897,8 +1934,8 @@ const gameApp = {
                     if (this.selection && (this.selection.x !== c || this.selection.y !== r)) {
                         const selTile = map[this.selection.y][this.selection.x];
                         if (selTile.unit && selTile.unit.ownerId === this.peerId) {
-                            // Show Path Line / Ghost Unit
-                            if (GameEngine.canMove(selTile.unit, selTile, t)) {
+                            
+                            if (this.interactionMode === 'MOVE' && GameEngine.canMove(selTile.unit, selTile, t)) {
                                 // Valid Move Hover
                                 ctx.save();
                                 ctx.strokeStyle = '#88c0d0';
@@ -1909,7 +1946,7 @@ const gameApp = {
                                 ctx.globalAlpha = 0.5;
                                 this.drawEntity(ctx, isoX, isoY - 10, UNITS[selTile.unit.type].sym, '#88c0d0', true);
                                 ctx.restore();
-                            } else if (t.unit && t.unit.ownerId !== this.peerId && Math.abs(c-this.selection.x)+Math.abs(r-this.selection.y) <= UNITS[selTile.unit.type].range) {
+                            } else if (this.interactionMode === 'ATTACK' && t.unit && t.unit.ownerId !== this.peerId && Math.abs(c-this.selection.x)+Math.abs(r-this.selection.y) <= UNITS[selTile.unit.type].range) {
                                 // Attack Cursor
                                 ctx.save();
                                 ctx.strokeStyle = '#bf616a';
@@ -1920,9 +1957,9 @@ const gameApp = {
                                 ctx.fillText('⚔️', isoX, isoY - 20);
                                 ctx.restore();
                             } else {
-                                // Invalid Move
+                                // Invalid or No-Op Hover
                                 ctx.save();
-                                ctx.strokeStyle = '#4c566a';
+                                ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
                                 ctx.lineWidth = 1;
                                 this.drawIsoRect(ctx, isoX, isoY, TILE_SIZE);
                                 ctx.restore();
