@@ -1,4 +1,4 @@
-<!-- Strategic Dominion: Cyprus Wars - v1.12.0 -->
+<!-- Strategic Dominion: Cyprus Wars - v1.13.0 -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -107,6 +107,12 @@
         button:hover {
             transform: scale(1.05);
             box-shadow: 0 0 15px rgba(94, 129, 172, 0.5);
+        }
+        
+        button:disabled {
+            background: #4c566a;
+            cursor: not-allowed;
+            opacity: 0.7;
         }
 
         button.secondary {
@@ -254,8 +260,10 @@
             border: 1px solid #88c0d0;
             margin: 5px;
             cursor: pointer;
+            transition: background 0.2s;
         }
-        .tech-tree-node.unlocked { background: #5e81ac; }
+        .tech-tree-node:hover { background: rgba(136, 192, 208, 0.2); }
+        .tech-tree-node.unlocked { background: #a3be8c; color: #2e3440; border-color: #8fbcbb; cursor: default; }
         .tech-tree-node.locked { background: #2e3440; color: #666; }
 
         #loading-overlay {
@@ -268,6 +276,26 @@
             justify-content: center;
             z-index: 9999;
             flex-direction: column;
+        }
+        
+        /* Turn Notification */
+        #turn-notification {
+            position: absolute;
+            top: 30%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 4rem;
+            font-family: 'Cinzel', serif;
+            color: #ebcb8b;
+            text-shadow: 0 0 20px rgba(0,0,0,0.8);
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.5s;
+            text-align: center;
+            z-index: 50;
+        }
+        #turn-notification.show {
+            opacity: 1;
         }
         
         .unit-stats { font-size: 0.8em; color: #bbb; }
@@ -291,6 +319,9 @@
     <h2 class="medieval-font">Initializing Comms...</h2>
     <div id="init-status">Connecting to Network...</div>
 </div>
+
+<!-- Turn Notification -->
+<div id="turn-notification">YOUR TURN</div>
 
 <!-- Menu View -->
 <div id="menu-view" class="view active">
@@ -490,7 +521,7 @@ const TECHS = {
     CHIVALRY: { name: "Chivalry", cost: 20, cat: "ARMY", unlocks: "KNIGHT", reqRes: "IRON" },
     SIEGE: { name: "Siegecraft", cost: 30, cat: "ARMY", unlocks: "CATAPULT", reqRes: "IRON" },
     FARMING: { name: "Farming", cost: 20, cat: "ECO", desc: "+Income" },
-    FISHING: { name: "Fishing", cost: 20, cat: "ECO", desc: "Unlocks Docks" },
+    FISHING: { name: "Fishing", cost: 20, cat: "ECO", desc: "Unlocks Docks", unlocks: "BOATS" },
     BANKING: { name: "Banking", cost: 40, cat: "ECO", desc: "+Interest" }
 };
 
@@ -566,6 +597,7 @@ class GameEngine {
                     const distMain = (dx * dx) / 0.04 + (dy * dy) / 0.015;
                     
                     const px = nx, py = ny;
+                    // Karpas Peninsula
                     const x1=0.5, y1=0.5, x2=0.9, y2=0.25;
                     const A = px - x1, B = py - y1, C = x2 - x1, D = y2 - y1;
                     const dot = A * C + B * D;
@@ -588,14 +620,17 @@ class GameEngine {
                     if (isLand) {
                         map[y][x].terrain = TERRAIN.LAND;
                         
+                        // Troodos Mountains (West/Central)
                         if (Math.sqrt(Math.pow(nx - 0.35, 2) + Math.pow(ny - 0.6, 2)) < 0.08) {
                             map[y][x].terrain = TERRAIN.MOUNTAIN;
                         }
-                        if (nx >= 0.25 && nx <= 0.75 && Math.abs(ny - 0.45 - (nx-0.4)*0.1) < 0.02) {
-                            map[y][x].terrain = TERRAIN.MOUNTAIN;
+                        
+                        // Removed Eastern Mountains (Kyrenia/Karpas Range)
+                        // if (nx >= 0.25 && nx <= 0.75 && Math.abs(ny - 0.45 - (nx-0.4)*0.1) < 0.02) {
+                        //    map[y][x].terrain = TERRAIN.MOUNTAIN;
+                        // }
                     }
                 }
-            }
             }
         } else {
             // RANDOM
@@ -625,10 +660,7 @@ class GameEngine {
     }
 
     static getSpawnPoints(map, count) {
-        // Improved spawn search - Scan whole map if needed
         const points = [];
-        // Hardcoded reliable relative spots for 5 players
-        // TL, BR, TR, BL, C
         const seeds = [
             {x:5, y:5}, {x:MAP_SIZE-5, y:MAP_SIZE-5},
             {x:MAP_SIZE-5, y:5}, {x:5, y:MAP_SIZE-5},
@@ -644,10 +676,8 @@ class GameEngine {
     }
 
     static findNearestLand(map, startX, startY) {
-        // Spiral search outwards
         let x = Math.floor(startX);
         let y = Math.floor(startY);
-        // Basic check first
         if(this.isLand(map, x, y)) return {x,y};
         
         let d = 1;
@@ -656,9 +686,7 @@ class GameEngine {
                 if(this.isLand(map, x-d+i, y-d)) return {x: x-d+i, y: y-d};
                 if(this.isLand(map, x+i, y-d)) return {x: x+i, y: y-d};
                 if(this.isLand(map, x-d, y-d+i)) return {x: x-d, y: y-d+i};
-                // ... simplified box search, checking random points in radius d
             }
-            // Correct spiral is complex, let's do random sampling in radius
             for(let k=0; k<20; k++) {
                 let rx = Math.floor(x + (Math.random() * d*2) - d);
                 let ry = Math.floor(y + (Math.random() * d*2) - d);
@@ -761,6 +789,19 @@ class GameEngine {
         return null;
     }
     
+    static getIncome(player, map) {
+        let income = 0;
+        for (let row of map) {
+            for (let tile of row) {
+                if (tile.ownerId === player.id) income += 0.5;
+                if (tile.structure && tile.structure.ownerId === player.id && tile.structure.type === 'MINE_GOLD') income += 5;
+            }
+        }
+        if (player.techs.includes('FARMING')) income += 5;
+        if (player.techs.includes('BANKING')) income += Math.floor(player.gold * 0.05);
+        return Math.floor(income);
+    }
+
     static nextTurn(state) {
         let nextIdx = (state.currentPlayerIndex + 1) % state.players.length;
         let loopGuard = 0;
@@ -784,7 +825,7 @@ class GameEngine {
                 }
             }
         }
-
+        
         // Process Auto-Moves
         if(player.type === 'HUMAN') { 
              let moved = true;
@@ -816,18 +857,9 @@ class GameEngine {
              }
         }
 
-        let income = 0;
-        for (let row of state.map) {
-            for (let tile of row) {
-                if (tile.ownerId === player.id) income += 0.5;
-                if (tile.structure && tile.structure.ownerId === player.id && tile.structure.type === 'MINE_GOLD') income += 5;
-            }
-        }
-        if (player.techs.includes('FARMING')) income += 5;
-        if (player.techs.includes('BANKING')) income += Math.floor(player.gold * 0.05);
-
-        player.gold += Math.floor(income);
-        state.logs.unshift(`Turn ${state.turn}: ${player.name}'s turn. Income: ${Math.floor(income)}`);
+        const income = this.getIncome(player, state.map);
+        player.gold += income;
+        state.logs.unshift(`Turn ${state.turn}: ${player.name}'s turn. Income: ${income}`);
         
         gameApp.saveLocal();
         
@@ -902,8 +934,12 @@ const gameApp = {
     
     // Camera & Interaction
     camera: { x: 0, y: 0, zoom: 1 },
+    isMouseDown: false,
     isDragging: false,
     lastMouse: { x: 0, y: 0 },
+    startMouse: { x: 0, y: 0 },
+    hoverTile: null,
+    
     visibleTiles: new Set(),
 
     init: function() {
@@ -938,6 +974,9 @@ const gameApp = {
             this.isDragging = false;
         });
         window.addEventListener('mousemove', (e) => {
+            // Hover Logic
+            this.updateHover(e);
+            
             if(this.isMouseDown && this.lastMouse) {
                  const dx = e.clientX - this.lastMouse.x;
                  const dy = e.clientY - this.lastMouse.y;
@@ -964,6 +1003,32 @@ const gameApp = {
 
         window.addEventListener('resize', () => this.resizeCanvas());
         setInterval(() => this.gameLoop(), 1000);
+    },
+    
+    updateHover: function(e) {
+        if(!this.gameState || this.isDragging) return;
+        const rect = document.getElementById('game-canvas').getBoundingClientRect();
+        const screenX = (e.clientX - rect.left);
+        const screenY = (e.clientY - rect.top);
+        
+        const zoom = this.camera.zoom;
+        const camX = this.camera.x + window.innerWidth/2;
+        const camY = this.camera.y + 100;
+        
+        const adjX = (screenX - camX) / zoom;
+        const adjY = (screenY - camY) / zoom;
+
+        const col = Math.floor((adjY * 2 + adjX) / TILE_SIZE);
+        const row = Math.floor((adjY * 2 - adjX) / TILE_SIZE);
+        
+        if(col >= 0 && col < MAP_SIZE && row >= 0 && row < MAP_SIZE) {
+            if (!this.hoverTile || this.hoverTile.x !== col || this.hoverTile.y !== row) {
+                this.hoverTile = {x: col, y: row};
+                this.renderGame();
+            }
+        } else {
+            this.hoverTile = null;
+        }
     },
 
     setupConnection: function(c) {
@@ -1004,6 +1069,7 @@ const gameApp = {
                 // this.calculateVisibility(); // DISABLED
                 if (this.view !== 'GAME') this.switchView('GAME');
                 if (isFirstSync) this.centerCamera();
+                this.checkTurnNotification();
                 this.renderGame();
                 this.updateHUD();
                 break;
@@ -1033,6 +1099,20 @@ const gameApp = {
                     this.updateHUD();
                 }
                 break;
+        }
+    },
+    
+    checkTurnNotification: function() {
+        if(!this.gameState) return;
+        const turnPlayer = this.gameState.players[this.gameState.currentPlayerIndex];
+        const el = document.getElementById('turn-notification');
+        if (turnPlayer.id === this.peerId) {
+            el.innerText = "YOUR TURN";
+            el.style.color = "#ebcb8b";
+            el.classList.add('show');
+            setTimeout(() => el.classList.remove('show'), 2000);
+        } else {
+            // Optional: Show who is playing briefly? No, too noisy.
         }
     },
 
@@ -1115,6 +1195,7 @@ const gameApp = {
         this.switchView('GAME');
         this.resizeCanvas();
         this.centerCamera();
+        this.checkTurnNotification();
         this.renderGame();
     },
 
@@ -1187,10 +1268,6 @@ const gameApp = {
     },
     
     handleCanvasClick: function(e) {
-        // We only want to process "clicks", not drags
-        // Simple check: if mouse moved significantly, it's a drag
-        // But mousedown calls this too? Wait.
-        // We should do interaction on mouseUp if !isDragging
     },
     
     doTileClickLogic: function(e) {
@@ -1223,9 +1300,6 @@ const gameApp = {
 
         const targetTile = state.map[y][x];
         const clickedUnit = targetTile.unit;
-
-        // Fog of War check - DISABLED
-        // if (!this.visibleTiles.has(`${x},${y}`)) return;
 
         if (this.selection) {
             const prevTile = state.map[this.selection.y][this.selection.x];
@@ -1347,7 +1421,10 @@ const gameApp = {
                 }
             }
         }
-        if (action.type === 'END_TURN') GameEngine.nextTurn(newState);
+        if (action.type === 'END_TURN') {
+            GameEngine.nextTurn(newState);
+            this.checkTurnNotification();
+        }
         if (action.type === 'BUY_UNIT') {
              let spawned = false;
              const cost = UNITS[action.unitType].cost;
@@ -1381,6 +1458,13 @@ const gameApp = {
                  if(spawned) newState.logs.unshift(`${player.name} recruited ${action.unitType}`);
              } 
         }
+        if (action.type === 'RESEARCH') {
+            if (player.gold >= action.cost && !player.techs.includes(action.techId)) {
+                player.gold -= action.cost;
+                player.techs.push(action.techId);
+                newState.logs.unshift(`${player.name} researched ${TECHS[action.techId].name}`);
+            }
+        }
         if (action.type === 'BUILD_FORT') {
             const t = newState.map[action.at.y][action.at.x];
             if(t.unit && t.ownerId === player.id && player.gold >= 15) {
@@ -1388,7 +1472,7 @@ const gameApp = {
                  t.unit = null; // Consume unit
                  t.structure = { type: 'FORT', hp: 10, ownerId: player.id };
                  newState.logs.unshift(`${player.name} built a Fort.`);
-             }
+            }
         }
 
         this.gameState = newState;
@@ -1404,6 +1488,10 @@ const gameApp = {
     
     buyUnit: function(type) {
         this.sendAction({ type: 'BUY_UNIT', unitType: type });
+    },
+    
+    researchTech: function(techId, cost) {
+        this.sendAction({ type: 'RESEARCH', techId, cost });
     },
     
     buildFort: function(x, y) {
@@ -1469,6 +1557,7 @@ const gameApp = {
             this.switchView('GAME');
             this.resizeCanvas();
             this.centerCamera();
+            this.checkTurnNotification();
             this.renderGame();
             this.updateHUD();
         }
@@ -1511,6 +1600,7 @@ const gameApp = {
             this.switchView('GAME');
             this.resizeCanvas();
             this.centerCamera();
+            this.checkTurnNotification();
             this.renderGame();
             this.updateHUD();
         };
@@ -1544,9 +1634,20 @@ const gameApp = {
         const myPlayer = this.gameState.players.find(p => p.id === this.peerId) || this.gameState.players[0];
         const turnPlayer = this.gameState.players[this.gameState.currentPlayerIndex];
         
-        document.getElementById('turn-indicator').innerText = `Turn ${this.gameState.turn} - ${turnPlayer.name}`;
+        const income = GameEngine.getIncome(myPlayer, this.gameState.map);
+        
+        const indicator = document.getElementById('turn-indicator');
+        if (turnPlayer.id === this.peerId) {
+            indicator.innerText = `YOUR TURN (Turn ${this.gameState.turn})`;
+            indicator.style.color = "#a3be8c";
+        } else {
+            indicator.innerText = `Waiting for ${turnPlayer.name}...`;
+            indicator.style.color = "#eceff4";
+        }
+        
         document.getElementById('timer').innerText = `${this.gameState.timeLeft}s`;
-        document.getElementById('gold-display').innerText = myPlayer ? myPlayer.gold : 0;
+        document.getElementById('gold-display').innerText = myPlayer.gold;
+        document.getElementById('income-display').innerText = `+${income}`;
         
         const logDiv = document.getElementById('game-log');
         logDiv.innerHTML = this.gameState.logs.slice(0, 10).map(l => `<div class="log-entry">${l}</div>`).join('');
@@ -1565,7 +1666,7 @@ const gameApp = {
         } else {
             turnControls.classList.add('hidden');
         }
-        
+
         if (this.selection) {
             const tile = this.gameState.map[this.selection.y][this.selection.x];
             if (tile.unit) {
@@ -1587,12 +1688,21 @@ const gameApp = {
                 selDetails.innerHTML = "Structure";
                 if(tile.ownerId === this.peerId && isMyTurn) {
                     if (tile.structure.type === 'CAPITAL' || tile.structure.type === 'FORT') {
-                         ['PEASANT', 'ARCHER', 'KNIGHT', 'CATAPULT'].forEach(ut => {
-                             const btn = document.createElement('button');
-                             btn.className = 'action-btn';
-                             btn.innerText = `Recruit ${UNITS[ut].name} (${UNITS[ut].cost}g)`;
-                             btn.onclick = () => this.buyUnit(ut);
-                             actionBtns.appendChild(btn);
+                         ['PEASANT', 'ARCHER', 'KNIGHT', 'CATAPULT', 'TRADE_BOAT', 'WAR_BOAT'].forEach(ut => {
+                             // CHECK TECH LOCK
+                             let unlocked = true;
+                             if (ut === 'ARCHER' && !myPlayer.techs.includes('ARCHERY')) unlocked = false;
+                             if (ut === 'KNIGHT' && !myPlayer.techs.includes('CHIVALRY')) unlocked = false;
+                             if (ut === 'CATAPULT' && !myPlayer.techs.includes('SIEGE')) unlocked = false;
+                             if ((ut === 'TRADE_BOAT' || ut === 'WAR_BOAT') && !myPlayer.techs.includes('FISHING')) unlocked = false;
+                             
+                             if (unlocked) {
+                                 const btn = document.createElement('button');
+                                 btn.className = 'action-btn';
+                                 btn.innerText = `Recruit ${UNITS[ut].name} (${UNITS[ut].cost}g)`;
+                                 btn.onclick = () => this.buyUnit(ut);
+                                 actionBtns.appendChild(btn);
+                             }
                          });
                     }
                 }
@@ -1634,6 +1744,9 @@ const gameApp = {
     },
     
     renderTechTree: function() {
+        if(!this.gameState) return;
+        const myPlayer = this.gameState.players.find(p => p.id === this.peerId) || this.gameState.players[0];
+        
         const cArmy = document.getElementById('tech-tree-army');
         const cEco = document.getElementById('tech-tree-eco');
         cArmy.innerHTML = '';
@@ -1641,9 +1754,23 @@ const gameApp = {
         
         Object.keys(TECHS).forEach(k => {
             const t = TECHS[k];
+            const hasTech = myPlayer.techs.includes(k);
             const div = document.createElement('div');
-            div.className = 'tech-tree-node';
-            div.innerHTML = `<strong>${t.name}</strong><br>${t.cost}g`;
+            div.className = `tech-tree-node ${hasTech ? 'unlocked' : ''}`;
+            
+            let content = `<strong>${t.name}</strong><br>`;
+            if (hasTech) {
+                content += `ACTIVE`;
+            } else {
+                content += `${t.cost}g`;
+            }
+            
+            div.innerHTML = content;
+            
+            if (!hasTech) {
+                div.onclick = () => this.researchTech(k, t.cost);
+            }
+            
             if(t.cat === 'ARMY') cArmy.appendChild(div);
             else cEco.appendChild(div);
         });
@@ -1727,17 +1854,17 @@ const gameApp = {
                 
                 // SELECTION & HIGHLIGHTS
                 if (this.selection) {
+                    // Selection Ring
                     if (this.selection.x === c && this.selection.y === r) {
-                    ctx.save();
-                    ctx.strokeStyle = '#ebcb8b';
-                    ctx.lineWidth = 2;
-                    ctx.shadowColor = '#ebcb8b';
-                    ctx.shadowBlur = 10;
-                    this.drawIsoRect(ctx, isoX, isoY, TILE_SIZE);
-                    ctx.restore();
-                }
+                        ctx.save();
+                        ctx.strokeStyle = '#ebcb8b';
+                        ctx.lineWidth = 2;
+                        ctx.shadowColor = '#ebcb8b';
+                        ctx.shadowBlur = 10;
+                        this.drawIsoRect(ctx, isoX, isoY, TILE_SIZE);
+                        ctx.restore();
+                    }
                     
-                    // Show Range / Valid Moves for Selected Unit
                     const selTile = map[this.selection.y][this.selection.x];
                     if (selTile.unit && selTile.unit.ownerId === this.peerId) {
                         const dist = Math.abs(c - this.selection.x) + Math.abs(r - this.selection.y);
@@ -1750,10 +1877,11 @@ const gameApp = {
                         // Attack Highlight (Red)
                         const range = UNITS[selTile.unit.type].range;
                         if (dist <= range && dist > 0) {
-                            this.drawOverlay(ctx, isoX, isoY, 'rgba(191, 97, 106, 0.2)');
                             // Stronger red border if enemy
                             if (t.unit && t.unit.ownerId !== this.peerId) {
                                 ctx.save();
+                                ctx.fillStyle = 'rgba(191, 97, 106, 0.4)';
+                                this.drawOverlay(ctx, isoX, isoY, 'rgba(191, 97, 106, 0.4)');
                                 ctx.strokeStyle = '#bf616a';
                                 ctx.lineWidth = 2;
                                 this.drawIsoRect(ctx, isoX, isoY, TILE_SIZE);
@@ -1762,8 +1890,58 @@ const gameApp = {
                         }
                     }
                 }
+                
+                // HOVER CURSOR
+                if (this.hoverTile && this.hoverTile.x === c && this.hoverTile.y === r) {
+                    // If we have a selection, show what click will do
+                    if (this.selection && (this.selection.x !== c || this.selection.y !== r)) {
+                        const selTile = map[this.selection.y][this.selection.x];
+                        if (selTile.unit && selTile.unit.ownerId === this.peerId) {
+                            // Show Path Line / Ghost Unit
+                            if (GameEngine.canMove(selTile.unit, selTile, t)) {
+                                // Valid Move Hover
+                                ctx.save();
+                                ctx.strokeStyle = '#88c0d0';
+                                ctx.lineWidth = 2;
+                                ctx.setLineDash([5, 5]);
+                                this.drawIsoRect(ctx, isoX, isoY, TILE_SIZE);
+                                // Ghost Unit
+                                ctx.globalAlpha = 0.5;
+                                this.drawEntity(ctx, isoX, isoY - 10, UNITS[selTile.unit.type].sym, '#88c0d0', true);
+                                ctx.restore();
+                            } else if (t.unit && t.unit.ownerId !== this.peerId && Math.abs(c-this.selection.x)+Math.abs(r-this.selection.y) <= UNITS[selTile.unit.type].range) {
+                                // Attack Cursor
+                                ctx.save();
+                                ctx.strokeStyle = '#bf616a';
+                                ctx.lineWidth = 3;
+                                this.drawIsoRect(ctx, isoX, isoY, TILE_SIZE);
+                                ctx.font = '20px Arial';
+                                ctx.fillStyle = '#bf616a';
+                                ctx.fillText('⚔️', isoX, isoY - 20);
+                                ctx.restore();
+                            } else {
+                                // Invalid Move
+                                ctx.save();
+                                ctx.strokeStyle = '#4c566a';
+                                ctx.lineWidth = 1;
+                                this.drawIsoRect(ctx, isoX, isoY, TILE_SIZE);
+                                ctx.restore();
+                            }
+                        }
+                    } else {
+                        // Just hover
+                        ctx.save();
+                        ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+                        ctx.lineWidth = 2;
+                        this.drawIsoRect(ctx, isoX, isoY, TILE_SIZE);
+                        ctx.restore();
+                    }
+                }
             }
         }
+        
+        // Draw Path Line if unit has path
+        // ... (Can be added later if needed, simplified hover ghost is usually enough)
         
         ctx.restore();
     },
@@ -1905,8 +2083,8 @@ const gameApp = {
                 ctx.arc(10, -14, 4, 0, Math.PI*2);
                 ctx.fill();
                 ctx.strokeStyle = '#2e3440';
-            ctx.lineWidth = 1;
-            ctx.stroke();
+                ctx.lineWidth = 1;
+                ctx.stroke();
             }
             
         } else {
