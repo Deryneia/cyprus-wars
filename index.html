@@ -1,4 +1,4 @@
-<!-- Strategic Dominion: Cyprus Wars - v1.6.0 -->
+<!-- Strategic Dominion: Cyprus Wars - v1.8.0 -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -191,6 +191,13 @@
             gap: 20px;
             align-items: center;
         }
+        
+        #top-right {
+            top: 10px;
+            right: 10px;
+            display: flex;
+            gap: 10px;
+        }
 
         #bottom-left {
             bottom: 10px;
@@ -352,6 +359,10 @@
             <div>Gold: <span id="gold-display" class="resource-display">0</span></div>
             <div>Income: <span id="income-display" class="resource-display">+0</span></div>
         </div>
+        
+        <div id="top-right" class="hud-panel" style="background: transparent; border: none; padding:0; top: 10px; right: 10px; pointer-events: auto;">
+             <button onclick="gameApp.toggleSystemMenu()" style="font-size: 1.2rem; padding: 5px 10px;">⚙️</button>
+        </div>
 
         <!-- Log -->
         <div id="bottom-left" class="hud-panel">
@@ -407,9 +418,19 @@
             </div>
             
             <div style="margin-top: 20px;">
-                <button onclick="gameApp.saveGame()">Save Game (Download)</button>
                 <button class="secondary" style="margin-top: 10px;" onclick="gameApp.toggleDiplomacy()">Close</button>
             </div>
+        </div>
+    </div>
+    
+    <!-- System Menu Modal -->
+    <div id="system-modal" class="modal hidden">
+        <div class="menu-card" style="max-width: 400px;">
+            <h2 class="medieval-font">System Menu</h2>
+            <button class="action-btn" onclick="gameApp.saveGame()">Save Game (Download)</button>
+            <button class="action-btn" onclick="gameApp.toggleSystemMenu()">Resume</button>
+            <hr style="border-color: #4c566a; margin: 15px 0;">
+            <button class="action-btn danger" onclick="gameApp.surrenderGame()">Surrender / End Game</button>
         </div>
     </div>
     
@@ -641,7 +662,7 @@ class GameEngine {
         const dy = Math.abs(fromTile.y - toTile.y);
         const dist = dx + dy; 
         
-        if (dist > unit.move) return false; // Max jump logic
+        if (dist > unit.move) return false; 
 
         const isBoat = unit.type.includes('BOAT');
         if (isBoat && toTile.terrain !== TERRAIN.WATER) return false;
@@ -829,6 +850,14 @@ const gameApp = {
                             fromP.gold -= msg.amount;
                             toP.gold += parseInt(msg.amount);
                             this.gameState.logs.unshift(`${fromP.name} sent ${msg.amount}g to ${toP.name}`);
+                            this.broadcast({ type: 'SYNC_STATE', state: this.gameState });
+                        }
+                    }
+                    if(msg.action === 'SURRENDER') {
+                        const p = this.gameState.players.find(p => p.id === msg.fromId);
+                        if(p) {
+                            p.isAlive = false;
+                            this.gameState.logs.unshift(`${p.name} has surrendered!`);
                             this.broadcast({ type: 'SYNC_STATE', state: this.gameState });
                         }
                     }
@@ -1312,6 +1341,30 @@ const gameApp = {
             this.updateHUD();
         };
         reader.readAsText(file);
+    },
+    
+    toggleSystemMenu: function() {
+        document.getElementById('system-modal').classList.toggle('hidden');
+    },
+    
+    surrenderGame: function() {
+        if(!this.gameState) return;
+        if(confirm("Are you sure you want to surrender?")) {
+            if(this.isHost) {
+                // Host ends game logic
+                const packet = { type: 'DIPLOMACY', action: 'SURRENDER', fromId: this.peerId, content: 'Host has ended the game.' };
+                this.handleNetworkMessage(packet);
+                this.broadcast(packet);
+                alert("Game Ended.");
+                location.reload();
+            } else {
+                // Client resigns
+                const packet = { type: 'DIPLOMACY', action: 'SURRENDER', fromId: this.peerId, content: 'I surrender!' };
+                this.conn.send(packet);
+                alert("You have surrendered.");
+                location.reload();
+            }
+        }
     },
 
     updateHUD: function() {
