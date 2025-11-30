@@ -925,19 +925,31 @@ const gameApp = {
         
         // Mouse / Touch Events for Interaction
         canvas.addEventListener('mousedown', (e) => {
-            this.isDragging = true;
+            this.isDragging = false;
             this.lastMouse = { x: e.clientX, y: e.clientY };
-            this.handleCanvasClick(e); // Also check click
+            this.startMouse = { x: e.clientX, y: e.clientY };
         });
-        window.addEventListener('mouseup', () => this.isDragging = false);
+        window.addEventListener('mouseup', (e) => {
+            if(!this.isDragging) {
+                this.doTileClickLogic(e);
+            }
+            this.isDragging = false;
+        });
         window.addEventListener('mousemove', (e) => {
-            if(this.isDragging) {
-                const dx = e.clientX - this.lastMouse.x;
-                const dy = e.clientY - this.lastMouse.y;
-                this.camera.x += dx;
-                this.camera.y += dy;
-                this.lastMouse = { x: e.clientX, y: e.clientY };
-                this.renderGame();
+            if(this.lastMouse) {
+                 const dx = e.clientX - this.lastMouse.x;
+                 const dy = e.clientY - this.lastMouse.y;
+                 // Drag threshold
+                 if (Math.abs(e.clientX - this.startMouse.x) > 5 || Math.abs(e.clientY - this.startMouse.y) > 5) {
+                     this.isDragging = true;
+                 }
+                 
+                 if(this.isDragging) {
+                    this.camera.x += dx;
+                    this.camera.y += dy;
+                    this.renderGame();
+                 }
+                 this.lastMouse = { x: e.clientX, y: e.clientY };
             }
         });
         canvas.addEventListener('wheel', (e) => {
@@ -1822,7 +1834,8 @@ const gameApp = {
         ctx.fill();
 
         if (tile.structure) {
-            this.drawEntity(ctx, x, y - height - 10, STRUCTURES[tile.structure.type].sym, '#d8dee9', false, false);
+            const isMine = tile.structure.ownerId === this.peerId;
+            this.drawEntity(ctx, x, y - height - 10, STRUCTURES[tile.structure.type].sym, '#d8dee9', false, false, isMine);
         }
 
         if (tile.unit) {
@@ -1834,11 +1847,12 @@ const gameApp = {
             if (u.movesLeft <= 0 && u.hasAttacked) status = 'DONE'; // gray
             if (u.movesLeft <= 0 && !u.hasAttacked) status = 'MOVED_MAX'; // yellow (can attack)
             
-            this.drawEntity(ctx, x, y - height - 15, UNITS[u.type].sym, owner.color, true, status);
+            const isMine = u.ownerId === this.peerId;
+            this.drawEntity(ctx, x, y - height - 15, UNITS[u.type].sym, owner.color, true, status, isMine);
         }
     },
 
-    drawEntity: function(ctx, x, y, symbol, color, isUnit = false, status = 'READY') {
+    drawEntity: function(ctx, x, y, symbol, color, isUnit = false, status = 'READY', isMine = false) {
         ctx.save();
         ctx.translate(x, y);
         
@@ -1847,6 +1861,11 @@ const gameApp = {
         ctx.beginPath();
         ctx.ellipse(0, 10, 12, 6, 0, 0, Math.PI * 2);
         ctx.fill();
+
+        if (isMine) {
+            ctx.shadowColor = '#ebcb8b'; // Gold glow for own units
+            ctx.shadowBlur = 15;
+        }
 
         if (isUnit) {
             // Unit Circle Background
@@ -1864,8 +1883,13 @@ const gameApp = {
             ctx.arc(0, -5, 14, 0, Math.PI*2);
             ctx.fill();
             
-            ctx.strokeStyle = 'rgba(255,255,255,0.8)';
-            ctx.lineWidth = 1.5;
+            if (isMine) {
+                ctx.strokeStyle = '#ebcb8b'; // Gold border
+                ctx.lineWidth = 3;
+            } else {
+                ctx.strokeStyle = 'rgba(255,255,255,0.8)';
+                ctx.lineWidth = 1.5;
+            }
             ctx.stroke();
             
             // Status Dot
