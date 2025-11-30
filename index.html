@@ -1,4 +1,4 @@
-<!-- Strategic Dominion: Cyprus Wars - v1.11.0 -->
+<!-- Strategic Dominion: Cyprus Wars - v1.12.0 -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -987,7 +987,7 @@ const gameApp = {
             case 'SYNC_STATE':
                 const isFirstSync = !this.gameState;
                 this.gameState = msg.state;
-                this.calculateVisibility();
+                // this.calculateVisibility(); // DISABLED
                 if (this.view !== 'GAME') this.switchView('GAME');
                 if (isFirstSync) this.centerCamera();
                 this.renderGame();
@@ -1027,7 +1027,7 @@ const gameApp = {
             this.connections.forEach(c => c.send(msg));
             if(msg.type === 'SYNC_STATE') {
                 this.gameState = msg.state;
-                this.calculateVisibility();
+                // this.calculateVisibility(); // DISABLED
             }
         } else if (this.conn) {
             this.conn.send(msg); 
@@ -1096,7 +1096,7 @@ const gameApp = {
         const config = { mapType: document.getElementById('map-type').value };
         const initialState = GameEngine.createInitialState(config, this.lobbySlots);
         this.gameState = initialState;
-        this.calculateVisibility();
+        // this.calculateVisibility(); // DISABLED
         this.broadcast({ type: 'SYNC_STATE', state: initialState });
         this.switchView('GAME');
         this.resizeCanvas();
@@ -1163,7 +1163,6 @@ const gameApp = {
             const nameDisplay = (slot.type === 'CPU' && this.isHost) 
                 ? `<input type="text" value="${slot.name}" onchange="gameApp.updateSlot(${idx}, 'name', this.value)" style="margin:0;padding:5px;">` 
                 : `<span>${slot.name} ${slot.id ? '(Connected)' : '(Waiting...)'}</span>`;
-
             const removeBtn = (this.isHost && idx !== 0) 
                 ? `<button class="danger" onclick="gameApp.removeSlot(${idx})" style="padding:5px; font-size:0.8rem;">X</button>` 
                 : ``;
@@ -1187,10 +1186,6 @@ const gameApp = {
         const screenY = (e.clientY - rect.top);
         
         // Adjust for Camera
-        // Screen = (Iso * Zoom) + Cam
-        // Iso * Zoom = Screen - Cam
-        // Iso = (Screen - Cam) / Zoom
-        
         const zoom = this.camera.zoom;
         const camX = this.camera.x + window.innerWidth/2;
         const camY = this.camera.y + 100;
@@ -1199,13 +1194,6 @@ const gameApp = {
         const adjY = (screenY - camY) / zoom;
 
         // Inverse Iso (Approximate hit testing)
-        // isoX = (c - r) * 32
-        // isoY = (c + r) * 16
-        // Y * 2 = (c + r) * 32
-        // X = (c - r) * 32
-        // Y*2 + X = 2c * 32 = 64c -> c = (2Y + X) / 64
-        // Y*2 - X = 2r * 32 = 64r -> r = (2Y - X) / 64
-        
         const col = Math.floor((adjY * 2 + adjX) / TILE_SIZE);
         const row = Math.floor((adjY * 2 - adjX) / TILE_SIZE);
         
@@ -1222,8 +1210,8 @@ const gameApp = {
         const targetTile = state.map[y][x];
         const clickedUnit = targetTile.unit;
 
-        // Fog of War check
-        if (!this.visibleTiles.has(`${x},${y}`)) return;
+        // Fog of War check - DISABLED
+        // if (!this.visibleTiles.has(`${x},${y}`)) return;
 
         if (this.selection) {
             const prevTile = state.map[this.selection.y][this.selection.x];
@@ -1274,45 +1262,9 @@ const gameApp = {
         this.updateHUD();
     },
 
-    // Fog Helper - Optimized
+    // Fog Helper - Optimized (DISABLED)
     calculateVisibility: function() {
-        if(!this.gameState) return;
-        this.visibleTiles.clear();
-        const myPlayer = this.gameState.players.find(p => p.id === this.peerId);
-        if (!myPlayer) { // Spectator sees all? Or nothing? Let's say all for debug
-             // Actually better to show nothing or handle spectator mode
-             return; 
-        }
-        
-        const VISION = 3;
-        // Iterate ALL tiles is slow. Iterate MY assets.
-        // But assets are in the map grid.
-        // Pass 1: Scan map to find my units (O(N^2) but simple ops)
-        const sources = [];
-        for(let r=0; r<MAP_SIZE; r++) {
-            for(let c=0; c<MAP_SIZE; c++) {
-                const t = this.gameState.map[r][c];
-                if(t.ownerId === this.peerId || (t.unit && t.unit.ownerId === this.peerId) || (t.structure && t.structure.ownerId === this.peerId)) {
-                    sources.push({x: c, y: r});
-                }
-            }
-        }
-        
-        // Pass 2: Mark visible
-        sources.forEach(src => {
-            for(let dy = -VISION; dy <= VISION; dy++) {
-                for(let dx = -VISION; dx <= VISION; dx++) {
-                    const dist = Math.abs(dx) + Math.abs(dy); // Manhattan dist
-                    if(dist <= VISION) {
-                        const nx = src.x + dx;
-                        const ny = src.y + dy;
-                        if(nx >= 0 && nx < MAP_SIZE && ny >= 0 && ny < MAP_SIZE) {
-                            this.visibleTiles.add(`${nx},${ny}`);
-                        }
-                    }
-                }
-            }
-        });
+        return; // Fog of War disabled
     },
 
     sendAction: function(action) {
@@ -1426,7 +1378,7 @@ const gameApp = {
         }
 
         this.gameState = newState;
-        this.calculateVisibility(); // Recalc locally
+        // this.calculateVisibility(); // DISABLED
         this.broadcast({ type: 'SYNC_STATE', state: newState });
         this.renderGame();
         this.updateHUD();
@@ -1498,7 +1450,7 @@ const gameApp = {
                 if(p.id === oldId) p.id = this.peerId;
             });
             
-            this.calculateVisibility();
+            // this.calculateVisibility(); // DISABLED
             this.broadcast({ type: 'SYNC_STATE', state: this.gameState });
             this.switchView('GAME');
             this.resizeCanvas();
@@ -1540,7 +1492,7 @@ const gameApp = {
                 });
             }
             
-            this.calculateVisibility();
+            // this.calculateVisibility(); // DISABLED
             this.broadcast({ type: 'SYNC_STATE', state: this.gameState });
             this.switchView('GAME');
             this.resizeCanvas();
@@ -1751,8 +1703,8 @@ const gameApp = {
             for(let c=0; c<map[0].length; c++) {
                 const t = map[r][c];
                 
-                // Fog of War Check (Set lookup O(1))
-                if (!this.visibleTiles.has(`${c},${r}`)) continue;
+                // Fog of War Check (Set lookup O(1)) - DISABLED
+                // if (!this.visibleTiles.has(`${c},${r}`)) continue;
                 
                 const isoX = (c - r) * (TILE_SIZE / 2);
                 const isoY = (c + r) * (TILE_SIZE / 4);
