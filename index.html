@@ -1350,7 +1350,7 @@ const gameApp = {
                             this.interactionMode = 'NONE';
                             this.renderGame();
                             this.updateHUD();
-                            return; // Exit to prevent re-selection
+                            return; 
                         } else if (isAutoPath) {
                              const path = GameEngine.findPath(state.map, selectedUnit, {x: this.selection.x, y: this.selection.y}, {x, y});
                              if (path && path.length > 0) {
@@ -1362,6 +1362,10 @@ const gameApp = {
                                  return;
                              }
                         }
+                        // If invalid move, DO NOT fall through to selection logic.
+                        // Just stay in move mode.
+                        return; 
+                        
                     } else if (this.interactionMode === 'ATTACK') {
                         if (clickedUnit && clickedUnit.ownerId !== this.peerId) {
                  const dist = Math.abs(x - this.selection.x) + Math.abs(y - this.selection.y);
@@ -1374,9 +1378,11 @@ const gameApp = {
                                  return;
                              }
                         }
+                        // If invalid attack, stay in attack mode.
+                        return;
                     }
                     
-                    // New Selection Logic (Only if not performing an action)
+                    // New Selection Logic (Only if NOT in a strict mode)
                     if (this.interactionMode === 'NONE' || (!clickedUnit && !targetTile.structure)) {
                         // If clicking self or ally, switch selection
             if (clickedUnit && clickedUnit.ownerId === this.peerId) {
@@ -2349,12 +2355,12 @@ const gameApp = {
 
         // Symbol (Emoji)
         ctx.fillStyle = '#fff';
-        ctx.font = '20px Apple Color Emoji, Segoe UI Emoji, Noto Color Emoji';
+        ctx.font = isUnit ? '20px Apple Color Emoji, Segoe UI Emoji, Noto Color Emoji' : '24px Apple Color Emoji, Segoe UI Emoji, Noto Color Emoji';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         // Center adjustment: Emoji baseline is weird on canvas. 
         // Translating up slightly (-5) centers it better in the circle.
-        ctx.fillText(symbol, 0, -4); 
+        ctx.fillText(symbol, 0, isUnit ? -4 : -5); 
 
         ctx.restore();
     },
