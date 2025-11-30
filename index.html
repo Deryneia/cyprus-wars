@@ -1,4 +1,4 @@
-<!-- Strategic Dominion: Cyprus Wars - v1.4.0 -->
+<!-- Strategic Dominion: Cyprus Wars - v1.5.0 -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -984,6 +984,9 @@ const gameApp = {
         const targetTile = state.map[y][x];
         const clickedUnit = targetTile.unit;
 
+        // Fog of War check - if tile is hidden, ignore click
+        if (this.isFogged(x, y)) return;
+
         if (this.selection) {
             const prevTile = state.map[this.selection.y][this.selection.x];
             const selectedUnit = prevTile.unit;
@@ -1018,6 +1021,29 @@ const gameApp = {
         this.updateHUD();
     },
 
+    // Fog Helper
+    isFogged: function(x, y) {
+        if (!this.gameState) return true;
+        // If I'm not in the game (observer), show all
+        const myPlayer = this.gameState.players.find(p => p.id === this.peerId);
+        if (!myPlayer) return false;
+
+        // Check if any of my units/structures are near (x,y)
+        // Vision range = 3
+        const VISION = 3;
+        
+        for(let r=0; r<MAP_SIZE; r++) {
+            for(let c=0; c<MAP_SIZE; c++) {
+                const t = this.gameState.map[r][c];
+                if (t.ownerId === this.peerId || (t.unit && t.unit.ownerId === this.peerId) || (t.structure && t.structure.ownerId === this.peerId)) {
+                    const dist = Math.abs(x - c) + Math.abs(y - r);
+                    if (dist <= VISION) return false;
+                }
+            }
+        }
+        return true;
+    },
+
     sendAction: function(action) {
         const newState = JSON.parse(JSON.stringify(this.gameState));
         const player = newState.players[newState.currentPlayerIndex];
@@ -1035,17 +1061,38 @@ const gameApp = {
         if (action.type === 'ATTACK') {
             const attacker = newState.map[action.from.y][action.from.x].unit;
             const defender = newState.map[action.to.y][action.to.x].unit;
+            
+            // Calculate Damage
             const dmg = Math.max(0, UNITS[attacker.type].atk - (UNITS[defender.type].def * 0.1)); 
             let finalDmg = 1; 
             if(attacker.type === 'KNIGHT' && defender.type === 'ARCHER') finalDmg = 2;
             if(attacker.type === 'ARCHER' && defender.type === 'PEASANT') finalDmg = 1;
+            
             defender.hp -= finalDmg;
             attacker.hasAttacked = true;
             attacker.movesLeft = 0;
+            
             newState.logs.unshift(`${player.name}'s ${UNITS[attacker.type].name} hit ${UNITS[defender.type].name} for ${finalDmg} dmg!`);
+            
+            // Death Check
             if (defender.hp <= 0) {
                  newState.map[action.to.y][action.to.x].unit = null;
                  newState.logs.unshift(`Enemy unit destroyed!`);
+            } else {
+                // RETALIATION LOGIC
+                // If defender is melee (Range=1) and attacker is adjacent, or defender is ranged (Range>1)
+                const dist = Math.abs(action.from.x - action.to.x) + Math.abs(action.from.y - action.to.y);
+                const defRange = UNITS[defender.type].range;
+                
+                if (dist <= defRange) {
+                    const retDmg = Math.max(1, Math.floor(UNITS[defender.type].atk * 0.5));
+                    attacker.hp -= retDmg;
+                    newState.logs.unshift(`Defender retaliated for ${retDmg} dmg!`);
+                    if(attacker.hp <= 0) {
+                        newState.map[action.from.y][action.from.x].unit = null;
+                        newState.logs.unshift(`Attacker died in counter-attack!`);
+                    }
+                }
             }
         }
         if (action.type === 'END_TURN') GameEngine.nextTurn(newState);
@@ -1342,6 +1389,11 @@ const gameApp = {
         for(let r=0; r<map.length; r++) {
             for(let c=0; c<map[0].length; c++) {
                 const t = map[r][c];
+                
+                // Fog of War Check
+                const isFog = this.isFogged(c, r);
+                if (isFog) continue; // Don't draw anything if fogged
+                
                 const isoX = (c - r) * (TILE_SIZE / 2) + offsetX;
                 const isoY = (c + r) * (TILE_SIZE / 4) + offsetY;
                 
@@ -1467,6 +1519,29 @@ const gameApp = {
         ctx.lineTo(x - size/2, y + size/4);
         ctx.closePath();
         ctx.stroke();
+    },
+    
+    // Fog Helper
+    isFogged: function(x, y) {
+        if (!this.gameState) return true;
+        // If I'm not in the game (observer), show all
+        const myPlayer = this.gameState.players.find(p => p.id === this.peerId);
+        if (!myPlayer) return false;
+
+        // Check if any of my units/structures are near (x,y)
+        // Vision range = 3
+        const VISION = 3;
+        
+        for(let r=0; r<MAP_SIZE; r++) {
+            for(let c=0; c<MAP_SIZE; c++) {
+                const t = this.gameState.map[r][c];
+                if (t.ownerId === this.peerId || (t.unit && t.unit.ownerId === this.peerId) || (t.structure && t.structure.ownerId === this.peerId)) {
+                    const dist = Math.abs(x - c) + Math.abs(y - r);
+                    if (dist <= VISION) return false;
+                }
+            }
+        }
+        return true;
     },
     
     leaveLobby: function() {
