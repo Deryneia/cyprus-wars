@@ -1,4 +1,4 @@
-<!-- Strategic Dominion: Cyprus Wars - v1.10.0 -->
+<!-- Strategic Dominion: Cyprus Wars - v1.11.0 -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -449,7 +449,7 @@
  * CONSTANTS & CONFIG
  */
 const TILE_SIZE = 64; 
-const MAP_SIZE = 50; // Increased Map Size
+const MAP_SIZE = 50; 
 const TURN_TIME = 45; 
 
 const FACTION_INFO = {
@@ -556,22 +556,15 @@ class GameEngine {
                 }
             }
         } else if (type === 'CYPRUS') {
-            // Scale-independent Cyprus Generation
             for (let y = 0; y < MAP_SIZE; y++) {
                 for (let x = 0; x < MAP_SIZE; x++) {
-                    // Normalized coordinates (0.0 to 1.0)
                     const nx = x / MAP_SIZE;
                     const ny = y / MAP_SIZE;
                     
-                    // Main Body (Oval)
-                    // Center approx (0.4, 0.6)
                     const dx = (nx - 0.4);
                     const dy = (ny - 0.6);
-                    // Adjust stretch to match map aspect
                     const distMain = (dx * dx) / 0.04 + (dy * dy) / 0.015;
                     
-                    // Karpas Peninsula (Tail)
-                    // Line from (0.5, 0.5) to (0.9, 0.25)
                     const px = nx, py = ny;
                     const x1=0.5, y1=0.5, x2=0.9, y2=0.25;
                     const A = px - x1, B = py - y1, C = x2 - x1, D = y2 - y1;
@@ -588,28 +581,24 @@ class GameEngine {
                     let isLand = false;
 
                     if (distMain <= 1.0) isLand = true;
-                    if (distToKarpas < 0.04) isLand = true; // Thickness
+                    if (distToKarpas < 0.04) isLand = true; 
 
-                    // Akrotiri (Bump at bottom)
                     if (Math.sqrt(Math.pow(nx - 0.4, 2) + Math.pow(ny - 0.8, 2)) < 0.05) isLand = true;
 
                     if (isLand) {
                         map[y][x].terrain = TERRAIN.LAND;
                         
-                        // Troodos (Center-West High)
                         if (Math.sqrt(Math.pow(nx - 0.35, 2) + Math.pow(ny - 0.6, 2)) < 0.08) {
                             map[y][x].terrain = TERRAIN.MOUNTAIN;
                         }
-                        // Kyrenia Range (North Ridge)
-                        // Line along top
                         if (nx >= 0.25 && nx <= 0.75 && Math.abs(ny - 0.45 - (nx-0.4)*0.1) < 0.02) {
                             map[y][x].terrain = TERRAIN.MOUNTAIN;
-                        }
                     }
                 }
             }
+            }
         } else {
-            // RANDOM ARCHIPELAGO
+            // RANDOM
             const seeds = [];
             for(let i=0; i<12; i++) {
                 seeds.push({
@@ -621,15 +610,12 @@ class GameEngine {
             
             for (let y = 0; y < MAP_SIZE; y++) {
                 for (let x = 0; x < MAP_SIZE; x++) {
-                    // Border water
                     if(x<2 || y<2 || x>MAP_SIZE-3 || y>MAP_SIZE-3) continue;
-                    
                     let h = 0;
                     for(let s of seeds) {
                         const d = Math.sqrt((x-s.x)**2 + (y-s.y)**2);
                         if(d < s.r) h += (s.r - d);
                     }
-                    
                     if (h > 2) map[y][x].terrain = TERRAIN.LAND;
                     if (h > 6) map[y][x].terrain = TERRAIN.MOUNTAIN;
                 }
@@ -639,35 +625,55 @@ class GameEngine {
     }
 
     static getSpawnPoints(map, count) {
+        // Improved spawn search - Scan whole map if needed
         const points = [];
-        // Corners & Center
-        points.push(this.findLand(map, 5, 5, 1, 1));
-        points.push(this.findLand(map, MAP_SIZE-5, MAP_SIZE-5, -1, -1));
-        points.push(this.findLand(map, MAP_SIZE-5, 5, -1, 1));
-        points.push(this.findLand(map, 5, MAP_SIZE-5, 1, -1));
-        points.push(this.findLand(map, MAP_SIZE/2, MAP_SIZE/2, 1, 1));
-        return points.slice(0, count);
+        // Hardcoded reliable relative spots for 5 players
+        // TL, BR, TR, BL, C
+        const seeds = [
+            {x:5, y:5}, {x:MAP_SIZE-5, y:MAP_SIZE-5},
+            {x:MAP_SIZE-5, y:5}, {x:5, y:MAP_SIZE-5},
+            {x:MAP_SIZE/2, y:MAP_SIZE/2}
+        ];
+        
+        for(let i=0; i<count; i++) {
+            let seed = seeds[i%seeds.length];
+            let spot = this.findNearestLand(map, seed.x, seed.y);
+            points.push(spot);
+        }
+        return points;
     }
 
-    static findLand(map, startX, startY, dx, dy) {
-        let x = startX, y = startY;
-        x = Math.max(0, Math.min(MAP_SIZE-1, x));
-        y = Math.max(0, Math.min(MAP_SIZE-1, y));
-        let maxIter = 200;
-        while(maxIter-- > 0) {
-            if (x >= 0 && x < MAP_SIZE && y >= 0 && y < MAP_SIZE) {
-                if (map[Math.floor(y)][Math.floor(x)].terrain === TERRAIN.LAND) {
-                    return {x: Math.floor(x), y: Math.floor(y)};
-                }
-                x += dx;
-                if (x < 0 || x >= MAP_SIZE) {
-                    x = startX;
-                    y += dy;
-                }
-            } else break;
+    static findNearestLand(map, startX, startY) {
+        // Spiral search outwards
+        let x = Math.floor(startX);
+        let y = Math.floor(startY);
+        // Basic check first
+        if(this.isLand(map, x, y)) return {x,y};
+        
+        let d = 1;
+        while(d < MAP_SIZE) {
+            for (let i = 0; i < d + 1; i++) {
+                if(this.isLand(map, x-d+i, y-d)) return {x: x-d+i, y: y-d};
+                if(this.isLand(map, x+i, y-d)) return {x: x+i, y: y-d};
+                if(this.isLand(map, x-d, y-d+i)) return {x: x-d, y: y-d+i};
+                // ... simplified box search, checking random points in radius d
+            }
+            // Correct spiral is complex, let's do random sampling in radius
+            for(let k=0; k<20; k++) {
+                let rx = Math.floor(x + (Math.random() * d*2) - d);
+                let ry = Math.floor(y + (Math.random() * d*2) - d);
+                if(this.isLand(map, rx, ry)) return {x:rx, y:ry};
+            }
+            d += 2;
         }
-        // Fallback to center if completely failed
         return {x: Math.floor(MAP_SIZE/2), y: Math.floor(MAP_SIZE/2)};
+    }
+    
+    static isLand(map, x, y) {
+        if(x>=0 && x<MAP_SIZE && y>=0 && y<MAP_SIZE) {
+            return map[y][x].terrain === TERRAIN.LAND;
+        }
+        return false;
     }
 
     static canMove(unit, fromTile, toTile) {
@@ -689,7 +695,6 @@ class GameEngine {
     }
     
     static findPath(map, unit, start, end) {
-        // A* Algorithm
         const openSet = [start];
         const cameFrom = {};
         const gScore = {};
@@ -701,7 +706,7 @@ class GameEngine {
         fScore[key(start)] = Math.abs(start.x - end.x) + Math.abs(start.y - end.y);
         
         let iterations = 0;
-        while(openSet.length > 0 && iterations++ < 1000) { // Cap for performance
+        while(openSet.length > 0 && iterations++ < 500) { 
             let current = openSet[0];
             let lowestF = fScore[key(current)] || Infinity;
             let currentIdx = 0;
@@ -735,13 +740,11 @@ class GameEngine {
             for(let neighbor of neighbors) {
                 if(neighbor.x < 0 || neighbor.x >= MAP_SIZE || neighbor.y < 0 || neighbor.y >= MAP_SIZE) continue;
                 
-                // Collision Check (Terrain Only for long paths usually, but lets be strict)
                 const targetTile = map[neighbor.y][neighbor.x];
                 const isBoat = unit.type.includes('BOAT');
                 if (targetTile.terrain === TERRAIN.MOUNTAIN) continue;
                 if (isBoat && targetTile.terrain !== TERRAIN.WATER) continue;
                 if (!isBoat && targetTile.terrain === TERRAIN.WATER && !targetTile.structure) continue;
-                // Ignore units for pathfinding to destination (Civ style: path through, stop if blocked)
                 
                 const tentativeG = (gScore[key(current)] || Infinity) + 1;
                 
@@ -781,12 +784,9 @@ class GameEngine {
                 }
             }
         }
-        
+
         // Process Auto-Moves
-        if(player.type === 'HUMAN') { // AI handles its own logic
-             // We need to find units with paths and move them
-             // This is complex because moving changes the map state.
-             // We'll do a pass.
+        if(player.type === 'HUMAN') { 
              let moved = true;
              let loops = 0;
              while(moved && loops < 5) {
@@ -799,16 +799,14 @@ class GameEngine {
                              const nextStep = t.unit.path[0];
                              const target = state.map[nextStep.y][nextStep.x];
                              
-                             if(!target.unit) { // Path clear
-                                 // Move
+                             if(!target.unit) { 
                                  target.unit = t.unit;
                                  t.unit = null;
                                  target.unit.movesLeft--;
-                                 target.unit.path.shift(); // Remove step
+                                 target.unit.path.shift(); 
                                  if(target.terrain === TERRAIN.LAND) target.ownerId = player.id;
-                                 moved = true; // Re-scan map as positions changed
+                                 moved = true; 
                              } else {
-                                 // Blocked - clear path
                                  t.unit.path = [];
                                  state.logs.unshift(`${player.name}'s unit blocked en route.`);
                              }
@@ -831,7 +829,6 @@ class GameEngine {
         player.gold += Math.floor(income);
         state.logs.unshift(`Turn ${state.turn}: ${player.name}'s turn. Income: ${Math.floor(income)}`);
         
-        // Auto-save at start of turn
         gameApp.saveLocal();
         
         return state;
@@ -902,6 +899,12 @@ const gameApp = {
     view: 'MENU', 
     selection: null,
     dpr: 1,
+    
+    // Camera & Interaction
+    camera: { x: 0, y: 0, zoom: 1 },
+    isDragging: false,
+    lastMouse: { x: 0, y: 0 },
+    visibleTiles: new Set(),
 
     init: function() {
         this.peer = new Peer(null, { debug: 2 });
@@ -909,7 +912,7 @@ const gameApp = {
             this.peerId = id;
             document.getElementById('my-peer-id').innerText = id;
             document.getElementById('loading-overlay').classList.add('hidden');
-            
+        
             if(localStorage.getItem('cw_save')) {
                 document.getElementById('resume-btn').classList.remove('hidden');
             }
@@ -917,8 +920,34 @@ const gameApp = {
         this.peer.on('connection', (c) => {
             this.setupConnection(c);
         });
+
         const canvas = document.getElementById('game-canvas');
-        canvas.addEventListener('mousedown', (e) => this.handleCanvasClick(e));
+        
+        // Mouse / Touch Events for Interaction
+        canvas.addEventListener('mousedown', (e) => {
+            this.isDragging = true;
+            this.lastMouse = { x: e.clientX, y: e.clientY };
+            this.handleCanvasClick(e); // Also check click
+        });
+        window.addEventListener('mouseup', () => this.isDragging = false);
+        window.addEventListener('mousemove', (e) => {
+            if(this.isDragging) {
+                const dx = e.clientX - this.lastMouse.x;
+                const dy = e.clientY - this.lastMouse.y;
+                this.camera.x += dx;
+                this.camera.y += dy;
+                this.lastMouse = { x: e.clientX, y: e.clientY };
+                this.renderGame();
+            }
+        });
+        canvas.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            const zoomSpeed = 0.1;
+            if(e.deltaY < 0) this.camera.zoom = Math.min(2, this.camera.zoom + zoomSpeed);
+            else this.camera.zoom = Math.max(0.5, this.camera.zoom - zoomSpeed);
+            this.renderGame();
+        }, { passive: false });
+
         window.addEventListener('resize', () => this.resizeCanvas());
         setInterval(() => this.gameLoop(), 1000);
     },
@@ -943,10 +972,10 @@ const gameApp = {
                     if (emptySlotIdx !== -1) {
                         this.lobbySlots[emptySlotIdx] = {
                             ...this.lobbySlots[emptySlotIdx],
-                            id: sender.peer,
-                            name: msg.player.name,
+                        id: sender.peer,
+                        name: msg.player.name,
                             ready: true
-                        };
+                    };
                         this.broadcast({ type: 'LOBBY_UPDATE', slots: this.lobbySlots });
                     }
                 }
@@ -956,8 +985,11 @@ const gameApp = {
                 this.renderLobby();
                 break;
             case 'SYNC_STATE':
+                const isFirstSync = !this.gameState;
                 this.gameState = msg.state;
+                this.calculateVisibility();
                 if (this.view !== 'GAME') this.switchView('GAME');
+                if (isFirstSync) this.centerCamera();
                 this.renderGame();
                 this.updateHUD();
                 break;
@@ -993,7 +1025,10 @@ const gameApp = {
     broadcast: function(msg) {
         if (this.isHost && this.connections) {
             this.connections.forEach(c => c.send(msg));
-            if(msg.type === 'SYNC_STATE') this.gameState = msg.state;
+            if(msg.type === 'SYNC_STATE') {
+                this.gameState = msg.state;
+                this.calculateVisibility();
+            }
         } else if (this.conn) {
             this.conn.send(msg); 
         }
@@ -1061,9 +1096,11 @@ const gameApp = {
         const config = { mapType: document.getElementById('map-type').value };
         const initialState = GameEngine.createInitialState(config, this.lobbySlots);
         this.gameState = initialState;
+        this.calculateVisibility();
         this.broadcast({ type: 'SYNC_STATE', state: initialState });
         this.switchView('GAME');
         this.resizeCanvas();
+        this.centerCamera();
         this.renderGame();
     },
 
@@ -1135,39 +1172,46 @@ const gameApp = {
             list.appendChild(div);
         });
     },
-
-    handleCanvasClick: function(e) { 
-        const p = this.gameState.players[this.gameState.currentPlayerIndex];
-        if (p.type === 'CPU') return;
-        if (p.id !== this.peerId) return;
-        this.doTileClickLogic(e);
+    
+    handleCanvasClick: function(e) {
+        // We only want to process "clicks", not drags
+        // Simple check: if mouse moved significantly, it's a drag
+        // But mousedown calls this too? Wait.
+        // We should do interaction on mouseUp if !isDragging
     },
     
     doTileClickLogic: function(e) {
-         if (!this.gameState) return;
+        if (!this.gameState) return;
         const rect = e.target.getBoundingClientRect();
-        // Adjust for high-DPI coordinate mapping
         const screenX = (e.clientX - rect.left);
         const screenY = (e.clientY - rect.top);
         
-        const offsetX = (rect.width / 2);
-        const offsetY = 100;
-        let bestTile = null;
-        let minDst = 9999;
+        // Adjust for Camera
+        // Screen = (Iso * Zoom) + Cam
+        // Iso * Zoom = Screen - Cam
+        // Iso = (Screen - Cam) / Zoom
+        
+        const zoom = this.camera.zoom;
+        const camX = this.camera.x + window.innerWidth/2;
+        const camY = this.camera.y + 100;
+        
+        const adjX = (screenX - camX) / zoom;
+        const adjY = (screenY - camY) / zoom;
 
-        for(let r=0; r<this.gameState.map.length; r++) {
-            for(let c=0; c<this.gameState.map[0].length; c++) {
-                const t = this.gameState.map[r][c];
-                const tx = (c - r) * (TILE_SIZE / 2) + offsetX;
-                const ty = (c + r) * (TILE_SIZE / 4) + offsetY;
-                const dist = Math.sqrt(Math.pow(screenX - tx, 2) + Math.pow(screenY - ty, 2));
-                if (dist < TILE_SIZE/2 && dist < minDst) {
-                    minDst = dist;
-                    bestTile = t;
-                }
-            }
+        // Inverse Iso (Approximate hit testing)
+        // isoX = (c - r) * 32
+        // isoY = (c + r) * 16
+        // Y * 2 = (c + r) * 32
+        // X = (c - r) * 32
+        // Y*2 + X = 2c * 32 = 64c -> c = (2Y + X) / 64
+        // Y*2 - X = 2r * 32 = 64r -> r = (2Y - X) / 64
+        
+        const col = Math.floor((adjY * 2 + adjX) / TILE_SIZE);
+        const row = Math.floor((adjY * 2 - adjX) / TILE_SIZE);
+        
+        if(col >= 0 && col < MAP_SIZE && row >= 0 && row < MAP_SIZE) {
+            this.onTileInteraction(col, row);
         }
-        if (bestTile) this.onTileInteraction(bestTile.x, bestTile.y);
     },
 
     onTileInteraction: function(x, y) {
@@ -1178,8 +1222,8 @@ const gameApp = {
         const targetTile = state.map[y][x];
         const clickedUnit = targetTile.unit;
 
-        // Fog of War check - if tile is hidden, ignore click
-        if (this.isFogged(x, y)) return;
+        // Fog of War check
+        if (!this.visibleTiles.has(`${x},${y}`)) return;
 
         if (this.selection) {
             const prevTile = state.map[this.selection.y][this.selection.x];
@@ -1190,15 +1234,13 @@ const gameApp = {
                 this.sendAction({ type: 'MOVE', from: {x: this.selection.x, y: this.selection.y}, to: {x, y} });
                 this.selection = null;
             }
-            // AUTO-PATHING (Move to distant tile)
+            // AUTO-PATHING
             else if (selectedUnit && !targetTile.unit && !targetTile.structure && !GameEngine.canMove(selectedUnit, prevTile, targetTile)) {
-                 // Try to pathfind
                  const path = GameEngine.findPath(state.map, selectedUnit, {x: this.selection.x, y: this.selection.y}, {x, y});
                  if (path && path.length > 0) {
                      this.sendAction({ type: 'SET_PATH', from: {x: this.selection.x, y: this.selection.y}, path: path });
                      this.selection = null;
                  } else {
-                     // If click was just selection change
                      if((clickedUnit && clickedUnit.ownerId === this.peerId) || (targetTile.structure && targetTile.ownerId === this.peerId)) {
                         this.selection = {x, y};
                      } else {
@@ -1232,27 +1274,45 @@ const gameApp = {
         this.updateHUD();
     },
 
-    // Fog Helper
-    isFogged: function(x, y) {
-        if (!this.gameState) return true;
-        // If I'm not in the game (observer), show all
+    // Fog Helper - Optimized
+    calculateVisibility: function() {
+        if(!this.gameState) return;
+        this.visibleTiles.clear();
         const myPlayer = this.gameState.players.find(p => p.id === this.peerId);
-        if (!myPlayer) return false;
-
-        // Check if any of my units/structures are near (x,y)
-        // Vision range = 3
-        const VISION = 3;
+        if (!myPlayer) { // Spectator sees all? Or nothing? Let's say all for debug
+             // Actually better to show nothing or handle spectator mode
+             return; 
+        }
         
+        const VISION = 3;
+        // Iterate ALL tiles is slow. Iterate MY assets.
+        // But assets are in the map grid.
+        // Pass 1: Scan map to find my units (O(N^2) but simple ops)
+        const sources = [];
         for(let r=0; r<MAP_SIZE; r++) {
             for(let c=0; c<MAP_SIZE; c++) {
                 const t = this.gameState.map[r][c];
-                if (t.ownerId === this.peerId || (t.unit && t.unit.ownerId === this.peerId) || (t.structure && t.structure.ownerId === this.peerId)) {
-                    const dist = Math.abs(x - c) + Math.abs(y - r);
-                    if (dist <= VISION) return false;
+                if(t.ownerId === this.peerId || (t.unit && t.unit.ownerId === this.peerId) || (t.structure && t.structure.ownerId === this.peerId)) {
+                    sources.push({x: c, y: r});
                 }
             }
         }
-        return true;
+        
+        // Pass 2: Mark visible
+        sources.forEach(src => {
+            for(let dy = -VISION; dy <= VISION; dy++) {
+                for(let dx = -VISION; dx <= VISION; dx++) {
+                    const dist = Math.abs(dx) + Math.abs(dy); // Manhattan dist
+                    if(dist <= VISION) {
+                        const nx = src.x + dx;
+                        const ny = src.y + dy;
+                        if(nx >= 0 && nx < MAP_SIZE && ny >= 0 && ny < MAP_SIZE) {
+                            this.visibleTiles.add(`${nx},${ny}`);
+                        }
+                    }
+                }
+            }
+        });
     },
 
     sendAction: function(action) {
@@ -1265,9 +1325,9 @@ const gameApp = {
             newState.map[action.from.y][action.from.x].unit = null;
             
             const dist = Math.abs(action.from.x - action.to.x) + Math.abs(action.from.y - action.to.y);
-            u.movesLeft -= dist; // Consume moves based on distance travelled
-            if (u.movesLeft < 0) u.movesLeft = 0; // Clamp
-            u.path = []; // Clear old path on manual move
+            u.movesLeft -= dist; 
+            if (u.movesLeft < 0) u.movesLeft = 0; 
+            u.path = []; 
 
             if (newState.map[action.to.y][action.to.x].terrain === TERRAIN.LAND) {
                 newState.map[action.to.y][action.to.x].ownerId = player.id;
@@ -1277,12 +1337,8 @@ const gameApp = {
         if (action.type === 'SET_PATH') {
             const u = newState.map[action.from.y][action.from.x].unit;
             u.path = action.path;
-            // Execute first step immediately if moves avail
             if(u.movesLeft > 0 && u.path.length > 0) {
                 const nextStep = u.path[0];
-                // Ensure adjacent? Pathfind returns adjacent steps.
-                // We call MOVE logic recursively or just handle it here?
-                // Handle here to keep state consistent
                 newState.map[nextStep.y][nextStep.x].unit = u;
                 newState.map[action.from.y][action.from.x].unit = null;
                 u.movesLeft--;
@@ -1295,7 +1351,6 @@ const gameApp = {
             const attacker = newState.map[action.from.y][action.from.x].unit;
             const defender = newState.map[action.to.y][action.to.x].unit;
             
-            // Calculate Damage
             const dmg = Math.max(0, UNITS[attacker.type].atk - (UNITS[defender.type].def * 0.1)); 
             let finalDmg = 1; 
             if(attacker.type === 'KNIGHT' && defender.type === 'ARCHER') finalDmg = 2;
@@ -1304,17 +1359,14 @@ const gameApp = {
             defender.hp -= finalDmg;
             attacker.hasAttacked = true;
             attacker.movesLeft = 0;
-            attacker.path = []; // Clear path on attack
+            attacker.path = []; 
             
             newState.logs.unshift(`${player.name}'s ${UNITS[attacker.type].name} hit ${UNITS[defender.type].name} for ${finalDmg} dmg!`);
             
-            // Death Check
             if (defender.hp <= 0) {
                  newState.map[action.to.y][action.to.x].unit = null;
                  newState.logs.unshift(`Enemy unit destroyed!`);
             } else {
-                // RETALIATION LOGIC
-                // If defender is melee (Range=1) and attacker is adjacent, or defender is ranged (Range>1)
                 const dist = Math.abs(action.from.x - action.to.x) + Math.abs(action.from.y - action.to.y);
                 const defRange = UNITS[defender.type].range;
                 
@@ -1370,10 +1422,11 @@ const gameApp = {
                  t.unit = null; // Consume unit
                  t.structure = { type: 'FORT', hp: 10, ownerId: player.id };
                  newState.logs.unshift(`${player.name} built a Fort.`);
-            }
+             }
         }
 
         this.gameState = newState;
+        this.calculateVisibility(); // Recalc locally
         this.broadcast({ type: 'SYNC_STATE', state: newState });
         this.renderGame();
         this.updateHUD();
@@ -1395,11 +1448,9 @@ const gameApp = {
         const amount = prompt("Amount of Gold to send:");
         if(amount && !isNaN(amount)) {
             if(this.isHost) {
-                // Host logic direct
                 const msg = { type: 'DIPLOMACY', action: 'GIVE_GOLD', fromId: this.peerId, toId: targetId, amount: parseInt(amount), content: `sent ${amount}g` };
                 this.handleNetworkMessage(msg);
             } else {
-                // Client req
                 this.conn.send({ type: 'DIPLOMACY', action: 'GIVE_GOLD', fromId: this.peerId, toId: targetId, amount: parseInt(amount), content: `sent ${amount}g` });
             }
         }
@@ -1429,7 +1480,6 @@ const gameApp = {
             slots: this.lobbySlots,
             myId: this.peerId
         }));
-        console.log("Game auto-saved locally.");
     },
     
     loadFromLocal: function() {
@@ -1448,9 +1498,11 @@ const gameApp = {
                 if(p.id === oldId) p.id = this.peerId;
             });
             
+            this.calculateVisibility();
             this.broadcast({ type: 'SYNC_STATE', state: this.gameState });
             this.switchView('GAME');
             this.resizeCanvas();
+            this.centerCamera();
             this.renderGame();
             this.updateHUD();
         }
@@ -1479,8 +1531,6 @@ const gameApp = {
             this.isHost = true;
             this.gameState = parsed.state;
             this.lobbySlots = parsed.slots;
-            // Assuming single player resume or host resume, we map slot 0 to self usually
-            // For simplicity, we map the first HUMAN slot to this peer
             const mySlot = this.lobbySlots.find(s => s.type === 'HUMAN');
             if(mySlot) {
                 const oldId = mySlot.id;
@@ -1490,9 +1540,11 @@ const gameApp = {
                 });
             }
             
+            this.calculateVisibility();
             this.broadcast({ type: 'SYNC_STATE', state: this.gameState });
             this.switchView('GAME');
             this.resizeCanvas();
+            this.centerCamera();
             this.renderGame();
             this.updateHUD();
         };
@@ -1507,14 +1559,12 @@ const gameApp = {
         if(!this.gameState) return;
         if(confirm("Are you sure you want to surrender?")) {
             if(this.isHost) {
-                // Host ends game logic
                 const packet = { type: 'DIPLOMACY', action: 'SURRENDER', fromId: this.peerId, content: 'Host has ended the game.' };
                 this.handleNetworkMessage(packet);
                 this.broadcast(packet);
                 alert("Game Ended.");
                 location.reload();
             } else {
-                // Client resigns
                 const packet = { type: 'DIPLOMACY', action: 'SURRENDER', fromId: this.peerId, content: 'I surrender!' };
                 this.conn.send(packet);
                 alert("You have surrendered.");
@@ -1544,13 +1594,12 @@ const gameApp = {
         actionBtns.innerHTML = '';
         const isMyTurn = (turnPlayer.id === this.peerId);
         
-        // Hide Turn Controls if not my turn
         if (isMyTurn) {
             turnControls.classList.remove('hidden');
         } else {
             turnControls.classList.add('hidden');
         }
-
+        
         if (this.selection) {
             const tile = this.gameState.map[this.selection.y][this.selection.x];
             if (tile.unit) {
@@ -1558,7 +1607,6 @@ const gameApp = {
                 selTitle.innerText = uInfo.name;
                 selDetails.innerHTML = `HP: ${tile.unit.hp} | Move: ${tile.unit.movesLeft}`;
                 
-                // Build Fort Action
                 if(isMyTurn && tile.ownerId === this.peerId && !tile.structure && tile.terrain === TERRAIN.LAND && tile.unit.movesLeft > 0) {
                     const btn = document.createElement('button');
                     btn.className = 'action-btn';
@@ -1637,7 +1685,6 @@ const gameApp = {
 
     resizeCanvas: function() {
         const cvs = document.getElementById('game-canvas');
-        // High DPI Support
         this.dpr = window.devicePixelRatio || 1;
         cvs.width = window.innerWidth * this.dpr;
         cvs.height = window.innerHeight * this.dpr;
@@ -1649,48 +1696,84 @@ const gameApp = {
         
         this.renderGame();
     },
+    
+    centerCamera: function() {
+        if(!this.gameState) return;
+        // Find my unit/structure
+        let target = {x: MAP_SIZE/2, y: MAP_SIZE/2};
+        
+        for(let r=0; r<MAP_SIZE; r++) {
+            for(let c=0; c<MAP_SIZE; c++) {
+                const t = this.gameState.map[r][c];
+                if(t.ownerId === this.peerId || (t.unit && t.unit.ownerId === this.peerId)) {
+                    target = {x: c, y: r};
+                    break;
+                }
+            }
+        }
+        
+        // Convert to ISO
+        const isoX = (target.x - target.y) * (TILE_SIZE / 2);
+        const isoY = (target.x + target.y) * (TILE_SIZE / 4);
+        
+        // Set Camera to center this
+        this.camera.x = -isoX;
+        this.camera.y = -isoY;
+    },
 
     renderGame: function() {
         if(!this.gameState) return;
         const cvs = document.getElementById('game-canvas');
         const ctx = cvs.getContext('2d');
         
-        // Clear rect using logic coords
+        // Clear rect logic
         ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
 
         const map = this.gameState.map;
-        const offsetX = window.innerWidth / 2;
-        const offsetY = 100;
-        const myPlayerId = this.peerId;
+        
+        // Camera Transforms
+        const zoom = this.camera.zoom;
+        const camX = this.camera.x;
+        const camY = this.camera.y;
+        
+        const centerX = window.innerWidth / 2;
+        const centerY = 100; // vertical padding
 
+        ctx.save();
+        // Apply Camera
+        ctx.translate(centerX, centerY);
+        ctx.scale(zoom, zoom);
+        ctx.translate(camX, camY);
+
+        // Only draw visible tiles to save perf
+        // Simplified culling: just draw everything for now, Fog handles logic
         for(let r=0; r<map.length; r++) {
             for(let c=0; c<map[0].length; c++) {
                 const t = map[r][c];
                 
-                // Fog of War Check
-                const isFog = this.isFogged(c, r);
-                if (isFog) continue; // Don't draw anything if fogged
+                // Fog of War Check (Set lookup O(1))
+                if (!this.visibleTiles.has(`${c},${r}`)) continue;
                 
-                const isoX = (c - r) * (TILE_SIZE / 2) + offsetX;
-                const isoY = (c + r) * (TILE_SIZE / 4) + offsetY;
+                const isoX = (c - r) * (TILE_SIZE / 2);
+                const isoY = (c + r) * (TILE_SIZE / 4);
                 
                 this.drawTile(ctx, isoX, isoY, t);
                 
                 // SELECTION & HIGHLIGHTS
                 if (this.selection) {
                     if (this.selection.x === c && this.selection.y === r) {
-                        ctx.save();
-                        ctx.strokeStyle = '#ebcb8b';
-                        ctx.lineWidth = 2;
-                        ctx.shadowColor = '#ebcb8b';
-                        ctx.shadowBlur = 10;
-                        this.drawIsoRect(ctx, isoX, isoY, TILE_SIZE);
-                        ctx.restore();
-                    }
+                    ctx.save();
+                    ctx.strokeStyle = '#ebcb8b';
+                    ctx.lineWidth = 2;
+                    ctx.shadowColor = '#ebcb8b';
+                    ctx.shadowBlur = 10;
+                    this.drawIsoRect(ctx, isoX, isoY, TILE_SIZE);
+                    ctx.restore();
+                }
                     
                     // Show Range / Valid Moves for Selected Unit
                     const selTile = map[this.selection.y][this.selection.x];
-                    if (selTile.unit && selTile.unit.ownerId === myPlayerId) {
+                    if (selTile.unit && selTile.unit.ownerId === this.peerId) {
                         const dist = Math.abs(c - this.selection.x) + Math.abs(r - this.selection.y);
                         
                         // Move Highlight (Blue)
@@ -1703,7 +1786,7 @@ const gameApp = {
                         if (dist <= range && dist > 0) {
                             this.drawOverlay(ctx, isoX, isoY, 'rgba(191, 97, 106, 0.2)');
                             // Stronger red border if enemy
-                            if (t.unit && t.unit.ownerId !== myPlayerId) {
+                            if (t.unit && t.unit.ownerId !== this.peerId) {
                                 ctx.save();
                                 ctx.strokeStyle = '#bf616a';
                                 ctx.lineWidth = 2;
@@ -1715,6 +1798,8 @@ const gameApp = {
                 }
             }
         }
+        
+        ctx.restore();
     },
 
     drawTile: function(ctx, x, y, tile) {
@@ -1842,8 +1927,8 @@ const gameApp = {
                 ctx.arc(10, -14, 4, 0, Math.PI*2);
                 ctx.fill();
                 ctx.strokeStyle = '#2e3440';
-                ctx.lineWidth = 1;
-                ctx.stroke();
+            ctx.lineWidth = 1;
+            ctx.stroke();
             }
             
         } else {
