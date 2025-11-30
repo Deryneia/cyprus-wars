@@ -821,7 +821,7 @@ class GameEngine {
         if (player.techs.includes('BANKING')) income += Math.floor(player.gold * 0.05);
         return Math.floor(income);
     }
-
+    
     static nextTurn(state) {
         let nextIdx = (state.currentPlayerIndex + 1) % state.players.length;
         let loopGuard = 0;
@@ -845,7 +845,7 @@ class GameEngine {
                 }
             }
         }
-        
+
         // Process Auto-Moves
         if(player.type === 'HUMAN') { 
              let moved = true;
@@ -1326,52 +1326,58 @@ const gameApp = {
             const prevTile = state.map[this.selection.y][this.selection.x];
             const selectedUnit = prevTile.unit;
             
-            // STRICT MODE LOGIC
-            if (selectedUnit && selectedUnit.ownerId === this.peerId) {
-                if (this.interactionMode === 'MOVE') {
-            if (GameEngine.canMove(selectedUnit, prevTile, targetTile)) {
+                    // Strict Mode Handling
+                    if (this.interactionMode === 'MOVE') {
+                        const isMoveValid = GameEngine.canMove(selectedUnit, prevTile, targetTile);
+                        const isAutoPath = !targetTile.unit && !targetTile.structure && !isMoveValid;
+                        
+                        if (isMoveValid) {
                 this.sendAction({ type: 'MOVE', from: {x: this.selection.x, y: this.selection.y}, to: {x, y} });
                 this.selection = null;
-                        this.interactionMode = 'NONE';
-                    } else if (!targetTile.unit && !targetTile.structure && !GameEngine.canMove(selectedUnit, prevTile, targetTile)) {
-                         // Auto-path
-                         const path = GameEngine.findPath(state.map, selectedUnit, {x: this.selection.x, y: this.selection.y}, {x, y});
-                         if (path && path.length > 0) {
-                             this.sendAction({ type: 'SET_PATH', from: {x: this.selection.x, y: this.selection.y}, path: path });
-                             this.selection = null;
-                             this.interactionMode = 'NONE';
-                         }
-                    }
-                } else if (this.interactionMode === 'ATTACK') {
-                    if (clickedUnit && clickedUnit.ownerId !== this.peerId) {
+                            this.interactionMode = 'NONE';
+                            this.renderGame();
+                            this.updateHUD();
+                            return; // Exit to prevent re-selection
+                        } else if (isAutoPath) {
+                             const path = GameEngine.findPath(state.map, selectedUnit, {x: this.selection.x, y: this.selection.y}, {x, y});
+                             if (path && path.length > 0) {
+                                 this.sendAction({ type: 'SET_PATH', from: {x: this.selection.x, y: this.selection.y}, path: path });
+                                 this.selection = null;
+                                 this.interactionMode = 'NONE';
+                                 this.renderGame();
+                                 this.updateHUD();
+                                 return;
+                             }
+                        }
+                    } else if (this.interactionMode === 'ATTACK') {
+                        if (clickedUnit && clickedUnit.ownerId !== this.peerId) {
                  const dist = Math.abs(x - this.selection.x) + Math.abs(y - this.selection.y);
                  if (dist <= UNITS[selectedUnit.type].range && !selectedUnit.hasAttacked) {
                      this.sendAction({ type: 'ATTACK', from: {x: this.selection.x, y: this.selection.y}, to: {x, y} });
                      this.selection = null;
-                             this.interactionMode = 'NONE';
-                 }
-            }
-            }
-                
-                // If clicking self or changing selection
+                                 this.interactionMode = 'NONE';
+                                 this.renderGame();
+                                 this.updateHUD();
+                                 return;
+                             }
+                        }
+                    }
+                    
+                    // New Selection Logic (Only if not performing an action)
+                    if (this.interactionMode === 'NONE' || (!clickedUnit && !targetTile.structure)) {
+                        // If clicking self or ally, switch selection
             if (clickedUnit && clickedUnit.ownerId === this.peerId) {
                 this.selection = {x, y};
-                    this.interactionMode = 'NONE'; // Reset on new selection
-                } else if (targetTile.structure && targetTile.ownerId === this.peerId) {
-                    this.selection = {x, y};
-                    this.interactionMode = 'NONE';
-                }
-                
-            } else {
-                // Structure selected or Enemy selected (observation)
-                if((clickedUnit && clickedUnit.ownerId === this.peerId) || (targetTile.structure && targetTile.ownerId === this.peerId)) {
-                    this.selection = {x, y};
-                    this.interactionMode = 'NONE';
-                } else {
-                    this.selection = null;
-                    this.interactionMode = 'NONE';
-                }
-            }
+                            this.interactionMode = 'NONE'; 
+                        } else if (targetTile.structure && targetTile.ownerId === this.peerId) {
+                            this.selection = {x, y};
+                            this.interactionMode = 'NONE';
+                        } else {
+                            // Deselect if clicking empty space in NONE mode
+                            this.selection = null;
+                            this.interactionMode = 'NONE';
+                        }
+                    }
         } else {
             if ((clickedUnit && clickedUnit.ownerId === this.peerId) || (targetTile.structure && targetTile.ownerId === this.peerId)) {
                 this.selection = {x, y};
@@ -1493,8 +1499,9 @@ const gameApp = {
                              
                              if(canSpawn) {
                                  // Check structure tile itself
-                                 if(!t.unit) spawnCandidates.push(t);
-                                 // Check neighbors
+                                 // if(!t.unit) spawnCandidates.push(t); // Removed preference for structure tile
+                                 
+                                 // Check neighbors first
                                  const neighbors = [
                                      {x:c+1,y:r}, {x:c-1,y:r}, {x:c,y:r+1}, {x:c,y:r-1}
                                  ];
@@ -1513,11 +1520,10 @@ const gameApp = {
                  }
                  
                  if(spawnCandidates.length > 0) {
-                     // Pick first valid or random? First valid is fine.
-                     // Actually prefer structure tile if available
-                     spawnCandidates.sort((a,b) => (a.structure ? -1 : 1));
-                     
-                     const t = spawnCandidates[0];
+                     // Pick random neighbor to avoid stacking in one direction
+                     // spawnCandidates.sort((a,b) => (a.structure ? -1 : 1));
+                     const randIdx = Math.floor(Math.random() * spawnCandidates.length);
+                     const t = spawnCandidates[randIdx];
                                  t.unit = {
                                      id: `u_${Math.random()}`,
                                      type: action.unitType,
@@ -1587,7 +1593,7 @@ const gameApp = {
                     player.gold += 30;
                     newState.logs.unshift(`${player.name} traded for 30 Coins!`);
                 }
-            }
+             }
         }
 
         this.gameState = newState;
@@ -1894,11 +1900,11 @@ const gameApp = {
                              }
                              
                              if (unlocked) {
-                                 const btn = document.createElement('button');
-                                 btn.className = 'action-btn';
+                             const btn = document.createElement('button');
+                             btn.className = 'action-btn';
                                  btn.innerText = `Recruit ${UNITS[ut].name} (${UNITS[ut].cost}c)`;
-                                 btn.onclick = () => this.buyUnit(ut);
-                                 actionBtns.appendChild(btn);
+                             btn.onclick = () => this.buyUnit(ut);
+                             actionBtns.appendChild(btn);
                              }
                          });
                     }
@@ -1950,7 +1956,7 @@ const gameApp = {
         }
         return false;
     },
-
+    
     renderTechTree: function() {
         if(!this.gameState) return;
         const myPlayer = this.gameState.players.find(p => p.id === this.peerId) || this.gameState.players[0];
@@ -2079,7 +2085,7 @@ const gameApp = {
                         
                         // Move Highlight (Blue) - Only if in MOVE mode
                         if (this.interactionMode === 'MOVE' && GameEngine.canMove(selTile.unit, selTile, t)) {
-                            this.drawOverlay(ctx, isoX, isoY, 'rgba(136, 192, 208, 0.3)');
+                            this.drawOverlay(ctx, isoX, isoY, 'rgba(136, 192, 208, 0.6)'); // Brighter
                         }
                         
                         // Attack Highlight (Red) - Only if in ATTACK mode
@@ -2088,8 +2094,8 @@ const gameApp = {
                             if (dist <= range && dist > 0) {
                                 if (t.unit && t.unit.ownerId !== this.peerId) {
                                     ctx.save();
-                                    ctx.fillStyle = 'rgba(191, 97, 106, 0.4)';
-                                    this.drawOverlay(ctx, isoX, isoY, 'rgba(191, 97, 106, 0.4)');
+                                    ctx.fillStyle = 'rgba(191, 97, 106, 0.6)'; // Brighter
+                                    this.drawOverlay(ctx, isoX, isoY, 'rgba(191, 97, 106, 0.6)');
                                     ctx.strokeStyle = '#bf616a';
                                     ctx.lineWidth = 2;
                                     this.drawIsoRect(ctx, isoX, isoY, TILE_SIZE);
@@ -2190,7 +2196,7 @@ const gameApp = {
             ctx.fillStyle = '#fff';
             ctx.font = '16px sans-serif';
             ctx.textAlign = 'center';
-            ctx.fillText('⛰️', x + 10, y - height); // Iron Rock
+            ctx.fillText('⚒️', x + 10, y - height); // Anvil / Smithy
         }
         if (tile.resource === RESOURCES.GOLD) {
             ctx.fillStyle = '#fff';
