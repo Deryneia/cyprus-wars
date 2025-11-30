@@ -387,7 +387,7 @@
         <div id="top-bar" class="hud-panel">
             <div class="medieval-font" id="turn-indicator">Turn 1</div>
             <div id="timer" style="color: #d08770; font-weight: bold;">45s</div>
-            <div>Gold: <span id="gold-display" class="resource-display">0</span></div>
+            <div>Coins: <span id="gold-display" class="resource-display">0</span></div>
             <div>Income: <span id="income-display" class="resource-display">+0</span></div>
         </div>
         
@@ -484,10 +484,10 @@ const MAP_SIZE = 50;
 const TURN_TIME = 45; 
 
 const FACTION_INFO = {
-    PEASANT_REBELLION: "Peasants cost -1 Gold.",
+    PEASANT_REBELLION: "Peasants cost -1 Coin.",
     TECHNOLOGISTS: "Tech costs 30% less.",
-    ORDER_OF_KNIGHTS: "Knights -1 Gold, but Knight Tech cost +50%.",
-    MARITIME_MERCHANTS: "Boats cost -1 Gold."
+    ORDER_OF_KNIGHTS: "Knights -1 Coin, but Knight Tech cost +50%.",
+    MARITIME_MERCHANTS: "Boats cost -1 Coin."
 };
 
 const FACTION_COLORS = ['#bf616a', '#d08770', '#ebcb8b', '#a3be8c', '#b48ead'];
@@ -499,11 +499,17 @@ const TERRAIN = {
     MOUNTAIN: 2
 };
 
+const RESOURCES = {
+    NONE: 0,
+    IRON: 1,
+    GOLD: 2
+};
+
 const UNITS = {
     PEASANT: { name: "Peasant", cost: 2, atk: 1, def: 1, range: 1, move: 1, sym: "🧑‍🌾" },
     ARCHER: { name: "Archer", cost: 3, atk: 1, def: 1, range: 2, move: 1, sym: "🏹" },
-    KNIGHT: { name: "Knight", cost: 4, atk: 1, def: 2, range: 1, move: 3, sym: "🐎" }, // Requires Iron
-    CATAPULT: { name: "Catapult", cost: 5, atk: 1, def: 5, range: 3, move: 1, sym: "🏗️" },
+    KNIGHT: { name: "Knight", cost: 4, atk: 1, def: 2, range: 1, move: 3, sym: "🐎", reqRes: 'IRON' },
+    CATAPULT: { name: "Catapult", cost: 5, atk: 1, def: 5, range: 3, move: 1, sym: "🏗️", reqRes: 'IRON' },
     TRADE_BOAT: { name: "Trade Boat", cost: 5, atk: 0, def: 1, range: 0, move: 1, sym: "⛵" },
     WAR_BOAT: { name: "War Boat", cost: 10, atk: 2, def: 1, range: 1, move: 1, sym: "🛶" }
 };
@@ -512,14 +518,14 @@ const STRUCTURES = {
     CAPITAL: { name: "Capital", hp: 30, sym: "🏰" },
     FORT: { name: "Fort", hp: 10, sym: "🏯" },
     DOCK: { name: "Dock", hp: 10, sym: "⚓" },
-    MINE_GOLD: { name: "Gold Mine", hp: 5, sym: "💰" },
-    MINE_IRON: { name: "Iron Mine", hp: 5, sym: "⛏️" }
+    MINE_GOLD: { name: "Coin Mine", hp: 5, sym: "💰" }, // Legacy structure
+    MINE_IRON: { name: "Iron Mine", hp: 5, sym: "⛏️" } // Legacy structure
 };
 
 const TECHS = {
     ARCHERY: { name: "Archery", cost: 10, cat: "ARMY", unlocks: "ARCHER" },
-    CHIVALRY: { name: "Chivalry", cost: 20, cat: "ARMY", unlocks: "KNIGHT", reqRes: "IRON" },
-    SIEGE: { name: "Siegecraft", cost: 30, cat: "ARMY", unlocks: "CATAPULT", reqRes: "IRON" },
+    CHIVALRY: { name: "Chivalry", cost: 20, cat: "ARMY", unlocks: "KNIGHT" },
+    SIEGE: { name: "Siegecraft", cost: 30, cat: "ARMY", unlocks: "CATAPULT" },
     FARMING: { name: "Farming", cost: 20, cat: "ECO", desc: "+Income" },
     FISHING: { name: "Fishing", cost: 20, cat: "ECO", desc: "Unlocks Docks", unlocks: "BOATS" },
     BANKING: { name: "Banking", cost: 40, cat: "ECO", desc: "+Interest" }
@@ -540,7 +546,8 @@ class GameEngine {
             color: FACTION_COLORS[i % FACTION_COLORS.length],
             isAlive: true,
             gold: 10,
-            techs: []
+            techs: [],
+            wars: [] // List of player IDs this player is at war with
         }));
 
         const spawnPoints = this.getSpawnPoints(map, players.length);
@@ -574,7 +581,7 @@ class GameEngine {
         for (let y = 0; y < MAP_SIZE; y++) {
             const row = [];
             for (let x = 0; x < MAP_SIZE; x++) {
-                row.push({ x, y, terrain: TERRAIN.WATER, ownerId: null, unit: null, structure: null });
+                row.push({ x, y, terrain: TERRAIN.WATER, ownerId: null, unit: null, structure: null, resource: RESOURCES.NONE });
             }
             map.push(row);
         }
@@ -624,11 +631,6 @@ class GameEngine {
                         if (Math.sqrt(Math.pow(nx - 0.35, 2) + Math.pow(ny - 0.6, 2)) < 0.08) {
                             map[y][x].terrain = TERRAIN.MOUNTAIN;
                         }
-                        
-                        // Removed Eastern Mountains (Kyrenia/Karpas Range)
-                        // if (nx >= 0.25 && nx <= 0.75 && Math.abs(ny - 0.45 - (nx-0.4)*0.1) < 0.02) {
-                        //    map[y][x].terrain = TERRAIN.MOUNTAIN;
-                        // }
                     }
                 }
             }
@@ -656,6 +658,20 @@ class GameEngine {
                 }
             }
         }
+        
+        // DISTRIBUTE RESOURCES (Iron & Gold)
+        // ~5% Iron, ~5% Gold on Land/Mountains
+        for (let y = 0; y < MAP_SIZE; y++) {
+            for (let x = 0; x < MAP_SIZE; x++) {
+                const t = map[y][x];
+                if (t.terrain !== TERRAIN.WATER) {
+                    const rand = Math.random();
+                    if (rand < 0.03) t.resource = RESOURCES.IRON;
+                    else if (rand < 0.06) t.resource = RESOURCES.GOLD;
+                }
+            }
+        }
+        
         return map;
     }
 
@@ -791,9 +807,13 @@ class GameEngine {
     
     static getIncome(player, map) {
         let income = 0;
+        let hasGoldRes = false;
         for (let row of map) {
             for (let tile of row) {
-                if (tile.ownerId === player.id) income += 0.5;
+                if (tile.ownerId === player.id) {
+                    income += 0.5;
+                    if (tile.resource === RESOURCES.GOLD) income += 1;
+                }
                 if (tile.structure && tile.structure.ownerId === player.id && tile.structure.type === 'MINE_GOLD') income += 5;
             }
         }
@@ -801,7 +821,7 @@ class GameEngine {
         if (player.techs.includes('BANKING')) income += Math.floor(player.gold * 0.05);
         return Math.floor(income);
     }
-    
+
     static nextTurn(state) {
         let nextIdx = (state.currentPlayerIndex + 1) % state.players.length;
         let loopGuard = 0;
@@ -825,7 +845,7 @@ class GameEngine {
                 }
             }
         }
-
+        
         // Process Auto-Moves
         if(player.type === 'HUMAN') { 
              let moved = true;
@@ -1403,6 +1423,16 @@ const gameApp = {
             const attacker = newState.map[action.from.y][action.from.x].unit;
             const defender = newState.map[action.to.y][action.to.x].unit;
             
+            // DIPLOMACY: DECLARE WAR
+            const victimId = defender.ownerId;
+            if (!player.wars.includes(victimId)) {
+                player.wars.push(victimId);
+                // Mutual war?
+                const victim = newState.players.find(p => p.id === victimId);
+                if(victim && !victim.wars.includes(player.id)) victim.wars.push(player.id);
+                newState.logs.unshift(`WAR! ${player.name} attacked ${victim.name}!`);
+            }
+            
             const dmg = Math.max(0, UNITS[attacker.type].atk - (UNITS[defender.type].def * 0.1)); 
             let finalDmg = 1; 
             if(attacker.type === 'KNIGHT' && defender.type === 'ARCHER') finalDmg = 2;
@@ -1516,7 +1546,48 @@ const gameApp = {
                  t.unit = null; // Consume unit
                  t.structure = { type: 'FORT', hp: 10, ownerId: player.id };
                  newState.logs.unshift(`${player.name} built a Fort.`);
-             }
+            }
+        }
+        if (action.type === 'BUILD_DOCK') {
+            const t = newState.map[action.at.y][action.at.x];
+            // Must be on LAND adjacent to WATER
+            let adjWater = false;
+            const n = [{x:t.x+1,y:t.y},{x:t.x-1,y:t.y},{x:t.x,y:t.y+1},{x:t.x,y:t.y-1}];
+            for(let k of n) {
+                if(k.x>=0 && k.x<MAP_SIZE && k.y>=0 && k.y<MAP_SIZE) {
+                    if(newState.map[k.y][k.x].terrain === TERRAIN.WATER) adjWater = true;
+                }
+            }
+            
+            if(t.unit && t.ownerId === player.id && player.gold >= 20 && adjWater) {
+                 player.gold -= 20;
+                 t.unit = null; // Consume unit
+                 t.structure = { type: 'DOCK', hp: 10, ownerId: player.id };
+                 newState.logs.unshift(`${player.name} built a Dock.`);
+            }
+        }
+        if (action.type === 'DO_TRADE') {
+            const t = newState.map[action.at.y][action.at.x];
+            if(t.unit && t.unit.type === 'TRADE_BOAT' && t.unit.ownerId === player.id) {
+                // Check for foreign friendly dock adjacent
+                let validDock = false;
+                const n = [{x:t.x+1,y:t.y},{x:t.x-1,y:t.y},{x:t.x,y:t.y+1},{x:t.x,y:t.y-1}];
+                for(let k of n) {
+                    if(k.x>=0 && k.x<MAP_SIZE && k.y>=0 && k.y<MAP_SIZE) {
+                        const nt = newState.map[k.y][k.x];
+                        if(nt.structure && nt.structure.type === 'DOCK' && nt.structure.ownerId !== player.id) {
+                            // Check war
+                            if(!player.wars.includes(nt.structure.ownerId)) validDock = true;
+                        }
+                    }
+                }
+                
+                if(validDock) {
+                    t.unit = null; // Consume boat
+                    player.gold += 30;
+                    newState.logs.unshift(`${player.name} traded for 30 Coins!`);
+                }
+            }
         }
 
         this.gameState = newState;
@@ -1540,6 +1611,14 @@ const gameApp = {
     
     buildFort: function(x, y) {
         this.sendAction({ type: 'BUILD_FORT', at: {x, y} });
+    },
+    
+    buildDock: function(x, y) {
+        this.sendAction({ type: 'BUILD_DOCK', at: {x, y} });
+    },
+    
+    doTrade: function(boatX, boatY) {
+        this.sendAction({ type: 'DO_TRADE', at: {x: boatX, y: boatY} });
     },
     
     giveGold: function(targetId) {
@@ -1744,9 +1823,53 @@ const gameApp = {
                     if(!tile.structure && tile.terrain === TERRAIN.LAND && tile.unit.movesLeft > 0) {
                         const btn = document.createElement('button');
                         btn.className = 'action-btn';
-                        btn.innerText = "Build Fort (15g)";
+                        btn.innerText = "Build Fort (15c)";
                         btn.onclick = () => this.buildFort(this.selection.x, this.selection.y);
                         actionBtns.appendChild(btn);
+                        
+                        // Check for Dock (Peasant on Land adj to Water)
+                        if(tile.unit.type === 'PEASANT') {
+                            const n = [{x:tile.x+1,y:tile.y},{x:tile.x-1,y:tile.y},{x:tile.x,y:tile.y+1},{x:tile.x,y:tile.y-1}];
+                            let adjWater = false;
+                            const map = this.gameState.map;
+                            for(let k of n) {
+                                if(k.x>=0 && k.x<MAP_SIZE && k.y>=0 && k.y<MAP_SIZE) {
+                                    if(map[k.y][k.x].terrain === TERRAIN.WATER) adjWater = true;
+                                }
+                            }
+                            if(adjWater) {
+                                const btnD = document.createElement('button');
+                                btnD.className = 'action-btn';
+                                btnD.innerText = "Build Dock (20c)";
+                                btnD.onclick = () => this.buildDock(this.selection.x, this.selection.y);
+                                actionBtns.appendChild(btnD);
+                            }
+                        }
+                    }
+                    
+                    // TRADE ACTION
+                    if(tile.unit.type === 'TRADE_BOAT') {
+                         // Check for friendly foreign dock
+                         const n = [{x:tile.x+1,y:tile.y},{x:tile.x-1,y:tile.y},{x:tile.x,y:tile.y+1},{x:tile.x,y:tile.y-1}];
+                         let canTrade = false;
+                         const map = this.gameState.map;
+                         for(let k of n) {
+                             if(k.x>=0 && k.x<MAP_SIZE && k.y>=0 && k.y<MAP_SIZE) {
+                                 const nt = map[k.y][k.x];
+                                 if(nt.structure && nt.structure.type === 'DOCK' && nt.structure.ownerId !== this.peerId) {
+                                     if(!myPlayer.wars.includes(nt.structure.ownerId)) canTrade = true;
+                                 }
+                             }
+                         }
+                         if(canTrade) {
+                             const btnT = document.createElement('button');
+                             btnT.className = 'action-btn';
+                             btnT.innerText = "Trade (30c)";
+                             btnT.style.background = '#ebcb8b';
+                             btnT.style.color = '#2e3440';
+                             btnT.onclick = () => this.doTrade(this.selection.x, this.selection.y);
+                             actionBtns.appendChild(btnT);
+                         }
                     }
                 }
                 
@@ -1755,21 +1878,27 @@ const gameApp = {
                 selTitle.innerText = sInfo.name;
                 selDetails.innerHTML = "Structure";
                 if(tile.ownerId === this.peerId && isMyTurn) {
-                    if (tile.structure.type === 'CAPITAL' || tile.structure.type === 'FORT') {
+                    if (tile.structure.type === 'CAPITAL' || tile.structure.type === 'FORT' || tile.structure.type === 'DOCK') {
                          ['PEASANT', 'ARCHER', 'KNIGHT', 'CATAPULT', 'TRADE_BOAT', 'WAR_BOAT'].forEach(ut => {
                              // CHECK TECH LOCK
                              let unlocked = true;
                              if (ut === 'ARCHER' && !myPlayer.techs.includes('ARCHERY')) unlocked = false;
-                             if (ut === 'KNIGHT' && !myPlayer.techs.includes('CHIVALRY')) unlocked = false;
-                             if (ut === 'CATAPULT' && !myPlayer.techs.includes('SIEGE')) unlocked = false;
-                             if ((ut === 'TRADE_BOAT' || ut === 'WAR_BOAT') && !myPlayer.techs.includes('FISHING')) unlocked = false;
+                             if (ut === 'KNIGHT' && (!myPlayer.techs.includes('CHIVALRY') || !this.hasResource('IRON'))) unlocked = false;
+                             if (ut === 'CATAPULT' && (!myPlayer.techs.includes('SIEGE') || !this.hasResource('IRON'))) unlocked = false;
+                             if ((ut === 'TRADE_BOAT' || ut === 'WAR_BOAT')) {
+                                 if(!myPlayer.techs.includes('FISHING')) unlocked = false;
+                                 if(tile.structure.type !== 'DOCK') unlocked = false; // Only at Docks
+                             } else {
+                                 // Land units not at Docks (unless we allow embark logic, but user wants separate)
+                                 if(tile.structure.type === 'DOCK') unlocked = false; 
+                             }
                              
                              if (unlocked) {
-                             const btn = document.createElement('button');
-                             btn.className = 'action-btn';
-                             btn.innerText = `Recruit ${UNITS[ut].name} (${UNITS[ut].cost}g)`;
-                             btn.onclick = () => this.buyUnit(ut);
-                             actionBtns.appendChild(btn);
+                                 const btn = document.createElement('button');
+                                 btn.className = 'action-btn';
+                                 btn.innerText = `Recruit ${UNITS[ut].name} (${UNITS[ut].cost}c)`;
+                                 btn.onclick = () => this.buyUnit(ut);
+                                 actionBtns.appendChild(btn);
                              }
                          });
                     }
@@ -1811,6 +1940,17 @@ const gameApp = {
         });
     },
     
+    hasResource: function(resName) {
+        if(!this.gameState) return false;
+        const resId = RESOURCES[resName];
+        for(let row of this.gameState.map) {
+            for(let t of row) {
+                if(t.ownerId === this.peerId && t.resource === resId) return true;
+            }
+        }
+        return false;
+    },
+
     renderTechTree: function() {
         if(!this.gameState) return;
         const myPlayer = this.gameState.players.find(p => p.id === this.peerId) || this.gameState.players[0];
@@ -1830,7 +1970,7 @@ const gameApp = {
             if (hasTech) {
                 content += `ACTIVE`;
             } else {
-                content += `${t.cost}g`;
+                content += `${t.cost}c`;
             }
             
             div.innerHTML = content;
@@ -2044,6 +2184,20 @@ const gameApp = {
              ctx.fillStyle = grad;
         }
         ctx.fill();
+        
+        // Resources
+        if (tile.resource === RESOURCES.IRON) {
+            ctx.fillStyle = '#fff';
+            ctx.font = '16px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText('⛰️', x + 10, y - height); // Iron Rock
+        }
+        if (tile.resource === RESOURCES.GOLD) {
+            ctx.fillStyle = '#fff';
+            ctx.font = '16px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText('💰', x + 10, y - height); // Gold Pile
+        }
         
         // Apply Color Overlay for Owner
         if (tile.ownerId && tile.terrain === TERRAIN.LAND) {
