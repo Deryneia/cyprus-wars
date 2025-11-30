@@ -1,4 +1,4 @@
-<!-- Strategic Dominion: Cyprus Wars - v1.8.0 -->
+<!-- Strategic Dominion: Cyprus Wars - v1.9.0 -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -522,7 +522,7 @@ class GameEngine {
                     id: `u_${Math.random()}`,
                     type: 'PEASANT',
                     ownerId: p.id,
-                    hp: 1, maxHp: 1, movesLeft: 1, hasAttacked: false
+                    hp: 1, maxHp: 1, movesLeft: 1, hasAttacked: false, path: []
                 };
             }
         });
@@ -556,28 +556,17 @@ class GameEngine {
                 }
             }
         } else if (type === 'CYPRUS') {
-            // Detailed Cyprus Shape Approximation
             const cx = MAP_SIZE / 2; 
             const cy = MAP_SIZE / 2;
 
             for (let y = 0; y < MAP_SIZE; y++) {
                 for (let x = 0; x < MAP_SIZE; x++) {
-                    // Normalize coordinates to 0-1 roughly relative to map center
-                    // Main Body (Oval-ish)
-                    // x: 4 to 20, y: 10 to 22
                     const dx = (x - 11);
                     const dy = (y - 16);
                     const distMain = (dx * dx) / 60 + (dy * dy) / 25;
                     
-                    // Karpas Peninsula (Long tail top-right)
-                    // Starts around x=16, y=12 going to x=26, y=6
-                    // Simple line check with thickness
-                    // Line eq: y = -0.6x + 22
                     const karpasX = x - 16;
                     const karpasY = y - 12;
-                    // Rotate coords for rectangle check
-                    // A bit hacky, just use point distance to line segment
-                    // Segment from (15, 13) to (26, 6)
                     const px = x, py = y;
                     const x1=15, y1=13, x2=26, y2=6;
                     const A = px - x1, B = py - y1, C = x2 - x1, D = y2 - y1;
@@ -594,19 +583,16 @@ class GameEngine {
                     let isLand = false;
 
                     if (distMain <= 1.2) isLand = true;
-                    if (distToKarpas < 1.3) isLand = true; // Thickness of peninsula
+                    if (distToKarpas < 1.3) isLand = true;
 
-                    // Akrotiri (Limassol Salt Lake bump)
                     if (Math.sqrt(Math.pow(x - 11, 2) + Math.pow(y - 23, 2)) < 1.5) isLand = true;
 
                     if (isLand) {
                         map[y][x].terrain = TERRAIN.LAND;
                         
-                        // Troodos Mountains (Center-West)
                         if (Math.sqrt(Math.pow(x - 9, 2) + Math.pow(y - 16, 2)) < 2.5) {
                             map[y][x].terrain = TERRAIN.MOUNTAIN;
                         }
-                        // Kyrenia Range (North Ridge)
                         if (x >= 6 && x <= 20 && Math.abs(y - 11 - (x-10)*0.1) < 0.8) {
                             map[y][x].terrain = TERRAIN.MOUNTAIN;
                         }
@@ -672,6 +658,75 @@ class GameEngine {
         return true;
     }
     
+    static findPath(map, unit, start, end) {
+        // A* Algorithm
+        const openSet = [start];
+        const cameFrom = {};
+        const gScore = {};
+        const fScore = {};
+        
+        const key = (pt) => `${pt.x},${pt.y}`;
+        
+        gScore[key(start)] = 0;
+        fScore[key(start)] = Math.abs(start.x - end.x) + Math.abs(start.y - end.y);
+        
+        while(openSet.length > 0) {
+            let current = openSet[0];
+            let lowestF = fScore[key(current)] || Infinity;
+            let currentIdx = 0;
+            
+            for(let i=1; i<openSet.length; i++) {
+                const sc = fScore[key(openSet[i])] || Infinity;
+                if(sc < lowestF) {
+                    lowestF = sc;
+                    current = openSet[i];
+                    currentIdx = i;
+                }
+            }
+            
+            if(current.x === end.x && current.y === end.y) {
+                const path = [];
+                let curr = current;
+                while(cameFrom[key(curr)]) {
+                    path.unshift(curr);
+                    curr = cameFrom[key(curr)];
+                }
+                return path;
+            }
+            
+            openSet.splice(currentIdx, 1);
+            
+            const neighbors = [
+                {x: current.x+1, y: current.y}, {x: current.x-1, y: current.y},
+                {x: current.x, y: current.y+1}, {x: current.x, y: current.y-1}
+            ];
+            
+            for(let neighbor of neighbors) {
+                if(neighbor.x < 0 || neighbor.x >= MAP_SIZE || neighbor.y < 0 || neighbor.y >= MAP_SIZE) continue;
+                
+                // Collision Check (Terrain Only for long paths usually, but lets be strict)
+                const targetTile = map[neighbor.y][neighbor.x];
+                const isBoat = unit.type.includes('BOAT');
+                if (targetTile.terrain === TERRAIN.MOUNTAIN) continue;
+                if (isBoat && targetTile.terrain !== TERRAIN.WATER) continue;
+                if (!isBoat && targetTile.terrain === TERRAIN.WATER && !targetTile.structure) continue;
+                // Ignore units for pathfinding to destination (Civ style: path through, stop if blocked)
+                
+                const tentativeG = (gScore[key(current)] || Infinity) + 1;
+                
+                if(tentativeG < (gScore[key(neighbor)] || Infinity)) {
+                    cameFrom[key(neighbor)] = current;
+                    gScore[key(neighbor)] = tentativeG;
+                    fScore[key(neighbor)] = tentativeG + Math.abs(neighbor.x - end.x) + Math.abs(neighbor.y - end.y);
+                    if(!openSet.find(n => n.x === neighbor.x && n.y === neighbor.y)) {
+                        openSet.push(neighbor);
+                    }
+                }
+            }
+        }
+        return null;
+    }
+    
     static nextTurn(state) {
         let nextIdx = (state.currentPlayerIndex + 1) % state.players.length;
         let loopGuard = 0;
@@ -686,6 +741,7 @@ class GameEngine {
 
         const player = state.players[nextIdx];
         
+        // Reset Moves
         for (let row of state.map) {
             for (let tile of row) {
                 if (tile.unit && tile.unit.ownerId === player.id) {
@@ -693,6 +749,40 @@ class GameEngine {
                     tile.unit.hasAttacked = false;
                 }
             }
+        }
+        
+        // Process Auto-Moves
+        if(player.type === 'HUMAN') { // AI handles its own logic
+             // We need to find units with paths and move them
+             // This is complex because moving changes the map state.
+             // We'll do a pass.
+             let moved = true;
+             while(moved) {
+                 moved = false;
+                 for(let r=0; r<MAP_SIZE; r++) {
+                     for(let c=0; c<MAP_SIZE; c++) {
+                         const t = state.map[r][c];
+                         if(t.unit && t.unit.ownerId === player.id && t.unit.path && t.unit.path.length > 0 && t.unit.movesLeft > 0) {
+                             const nextStep = t.unit.path[0];
+                             const target = state.map[nextStep.y][nextStep.x];
+                             
+                             if(!target.unit) { // Path clear
+                                 // Move
+                                 target.unit = t.unit;
+                                 t.unit = null;
+                                 target.unit.movesLeft--;
+                                 target.unit.path.shift(); // Remove step
+                                 if(target.terrain === TERRAIN.LAND) target.ownerId = player.id;
+                                 moved = true; // Re-scan map as positions changed
+                             } else {
+                                 // Blocked - clear path
+                                 t.unit.path = [];
+                                 state.logs.unshift(`${player.name}'s unit blocked en route.`);
+                             }
+                         }
+                     }
+                 }
+             }
         }
 
         let income = 0;
@@ -1061,8 +1151,25 @@ const gameApp = {
             const selectedUnit = prevTile.unit;
             
             if (selectedUnit && GameEngine.canMove(selectedUnit, prevTile, targetTile)) {
+                // Single step move
                 this.sendAction({ type: 'MOVE', from: {x: this.selection.x, y: this.selection.y}, to: {x, y} });
                 this.selection = null;
+            }
+            // AUTO-PATHING (Move to distant tile)
+            else if (selectedUnit && !targetTile.unit && !targetTile.structure && !GameEngine.canMove(selectedUnit, prevTile, targetTile)) {
+                 // Try to pathfind
+                 const path = GameEngine.findPath(state.map, selectedUnit, {x: this.selection.x, y: this.selection.y}, {x, y});
+                 if (path && path.length > 0) {
+                     this.sendAction({ type: 'SET_PATH', from: {x: this.selection.x, y: this.selection.y}, path: path });
+                     this.selection = null;
+                 } else {
+                     // If click was just selection change
+                     if((clickedUnit && clickedUnit.ownerId === this.peerId) || (targetTile.structure && targetTile.ownerId === this.peerId)) {
+                        this.selection = {x, y};
+                     } else {
+                        this.selection = null;
+                     }
+                 }
             }
             else if (selectedUnit && clickedUnit && clickedUnit.ownerId !== this.peerId) {
                  const dist = Math.abs(x - this.selection.x) + Math.abs(y - this.selection.y);
@@ -1122,19 +1229,32 @@ const gameApp = {
             newState.map[action.to.y][action.to.x].unit = u;
             newState.map[action.from.y][action.from.x].unit = null;
             
-            // COST: 1 point per move action usually, but Knight has multiple steps?
-            // Since canMove validates distance, we just deduct the move cost if successful.
-            // If Knight moves 3 tiles in one go, we deduct all?
-            // Our logic is simple: 1 move action consumes the unit's turn mostly, or reduces movesLeft.
-            // Knight has 3 moves. moving 1 tile costs 1. moving 3 costs 3?
             const dist = Math.abs(action.from.x - action.to.x) + Math.abs(action.from.y - action.to.y);
             u.movesLeft -= dist; // Consume moves based on distance travelled
             if (u.movesLeft < 0) u.movesLeft = 0; // Clamp
+            u.path = []; // Clear old path on manual move
 
             if (newState.map[action.to.y][action.to.x].terrain === TERRAIN.LAND) {
                 newState.map[action.to.y][action.to.x].ownerId = player.id;
             }
             newState.logs.unshift(`${player.name} moved ${UNITS[u.type].name}`);
+        }
+        if (action.type === 'SET_PATH') {
+            const u = newState.map[action.from.y][action.from.x].unit;
+            u.path = action.path;
+            // Execute first step immediately if moves avail
+            if(u.movesLeft > 0 && u.path.length > 0) {
+                const nextStep = u.path[0];
+                // Ensure adjacent? Pathfind returns adjacent steps.
+                // We call MOVE logic recursively or just handle it here?
+                // Handle here to keep state consistent
+                newState.map[nextStep.y][nextStep.x].unit = u;
+                newState.map[action.from.y][action.from.x].unit = null;
+                u.movesLeft--;
+                u.path.shift();
+                if(newState.map[nextStep.y][nextStep.x].terrain === TERRAIN.LAND) newState.map[nextStep.y][nextStep.x].ownerId = player.id;
+                newState.logs.unshift(`${player.name} auto-moved ${UNITS[u.type].name}`);
+            }
         }
         if (action.type === 'ATTACK') {
             const attacker = newState.map[action.from.y][action.from.x].unit;
@@ -1149,6 +1269,7 @@ const gameApp = {
             defender.hp -= finalDmg;
             attacker.hasAttacked = true;
             attacker.movesLeft = 0;
+            attacker.path = []; // Clear path on attack
             
             newState.logs.unshift(`${player.name}'s ${UNITS[attacker.type].name} hit ${UNITS[defender.type].name} for ${finalDmg} dmg!`);
             
@@ -1194,7 +1315,7 @@ const gameApp = {
                                      id: `u_${Math.random()}`,
                                      type: action.unitType,
                                      ownerId: player.id,
-                                     hp: 5, maxHp: 5, movesLeft: 0, hasAttacked: true
+                                     hp: 5, maxHp: 5, movesLeft: 0, hasAttacked: true, path: []
                                  };
                                  player.gold -= actualCost;
                                  spawned = true;
@@ -1527,6 +1648,13 @@ const gameApp = {
                     if (selTile.unit && selTile.unit.ownerId === myPlayerId) {
                         const dist = Math.abs(c - this.selection.x) + Math.abs(r - this.selection.y);
                         
+                        // DRAW PATH LINE
+                        if(selTile.unit.path && selTile.unit.path.length > 0) {
+                            // We should draw the whole path
+                            // But drawing lines in Iso is tricky? Just overlay
+                            // This is basic logic for now.
+                        }
+
                         // Move Highlight (Blue)
                         if (GameEngine.canMove(selTile.unit, selTile, t)) {
                             this.drawOverlay(ctx, isoX, isoY, 'rgba(136, 192, 208, 0.3)');
@@ -1615,12 +1743,17 @@ const gameApp = {
         if (tile.unit) {
             const u = tile.unit;
             const owner = this.gameState.players.find(p => p.id === u.ownerId);
-            const isSpent = (u.movesLeft <= 0 && u.hasAttacked);
-            this.drawEntity(ctx, x, y - height - 15, UNITS[u.type].sym, owner.color, true, isSpent);
+            // Status calculation
+            let status = 'READY'; // green
+            if (u.movesLeft < UNITS[u.type].move) status = 'MOVED'; // yellow
+            if (u.movesLeft <= 0 && u.hasAttacked) status = 'DONE'; // gray
+            if (u.movesLeft <= 0 && !u.hasAttacked) status = 'MOVED_MAX'; // yellow (can attack)
+            
+            this.drawEntity(ctx, x, y - height - 15, UNITS[u.type].sym, owner.color, true, status);
         }
     },
 
-    drawEntity: function(ctx, x, y, symbol, color, isUnit = false, isSpent = false) {
+    drawEntity: function(ctx, x, y, symbol, color, isUnit = false, status = 'READY') {
         ctx.save();
         ctx.translate(x, y);
         
@@ -1632,13 +1765,30 @@ const gameApp = {
 
         if (isUnit) {
             // Unit Circle Background
-            ctx.fillStyle = isSpent ? '#4c566a' : color; // Gray if spent
+            // DONE = Gray, otherwise Player Color
+            ctx.fillStyle = (status === 'DONE') ? '#4c566a' : color;
             ctx.beginPath();
             ctx.arc(0, -5, 12, 0, Math.PI*2);
             ctx.fill();
             ctx.strokeStyle = '#fff';
             ctx.lineWidth = 1;
             ctx.stroke();
+            
+            // Status Dot
+            let dotColor = null;
+            if (status === 'READY') dotColor = '#a3be8c'; // Green
+            else if (status === 'MOVED' || status === 'MOVED_MAX') dotColor = '#ebcb8b'; // Yellow
+            
+            if (dotColor) {
+                ctx.fillStyle = dotColor;
+                ctx.beginPath();
+                ctx.arc(8, -12, 4, 0, Math.PI*2);
+                ctx.fill();
+                ctx.strokeStyle = '#2e3440';
+                ctx.lineWidth = 1;
+                ctx.stroke();
+            }
+            
         } else {
             // Structure Base
             ctx.fillStyle = '#4c566a';
@@ -1676,29 +1826,6 @@ const gameApp = {
         ctx.lineTo(x - size/2, y + size/4);
         ctx.closePath();
         ctx.stroke();
-    },
-    
-    // Fog Helper
-    isFogged: function(x, y) {
-        if (!this.gameState) return true;
-        // If I'm not in the game (observer), show all
-        const myPlayer = this.gameState.players.find(p => p.id === this.peerId);
-        if (!myPlayer) return false;
-
-        // Check if any of my units/structures are near (x,y)
-        // Vision range = 3
-        const VISION = 3;
-        
-        for(let r=0; r<MAP_SIZE; r++) {
-            for(let c=0; c<MAP_SIZE; c++) {
-                const t = this.gameState.map[r][c];
-                if (t.ownerId === this.peerId || (t.unit && t.unit.ownerId === this.peerId) || (t.structure && t.structure.ownerId === this.peerId)) {
-                    const dist = Math.abs(x - c) + Math.abs(y - r);
-                    if (dist <= VISION) return false;
-                }
-            }
-        }
-        return true;
     },
     
     leaveLobby: function() {
