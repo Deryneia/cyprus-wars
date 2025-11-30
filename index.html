@@ -849,12 +849,15 @@ class GameEngine {
 
         const player = state.players[nextIdx];
         
-        // Reset Moves
+        // Reset Moves & Production
         for (let row of state.map) {
             for (let tile of row) {
                 if (tile.unit && tile.unit.ownerId === player.id) {
                     tile.unit.movesLeft = UNITS[tile.unit.type].move;
                     tile.unit.hasAttacked = false;
+                }
+                if (tile.structure && tile.structure.ownerId === player.id) {
+                    tile.structure.hasProduced = false;
                 }
             }
         }
@@ -1353,15 +1356,32 @@ const gameApp = {
                     this.renderGame();
                     this.updateHUD();
                     return; 
-                } else if (isAutoPath) {
+                } else {
+                     // Attempt Partial Move (Move as far as possible towards target)
                      const path = GameEngine.findPath(state.map, selectedUnit, {x: this.selection.x, y: this.selection.y}, {x, y});
                      if (path && path.length > 0) {
-                         this.sendAction({ type: 'SET_PATH', from: {x: this.selection.x, y: this.selection.y}, path: path });
-                         this.selection = null;
-                         this.interactionMode = 'NONE';
-                         this.renderGame();
-                         this.updateHUD();
-                         return;
+                         // Find furthest reachable node within movesLeft
+                         let moves = selectedUnit.movesLeft;
+                         let targetNode = null;
+                         
+                         // path[0] is first step
+                         for(let i=0; i<path.length; i++) {
+                             if (moves > 0) {
+                                 targetNode = path[i];
+                                 moves--;
+                             } else {
+                                 break;
+                             }
+                         }
+                         
+                         if (targetNode) {
+                             this.sendAction({ type: 'MOVE', from: {x: this.selection.x, y: this.selection.y}, to: {x: targetNode.x, y: targetNode.y} });
+                             this.selection = null;
+                             this.interactionMode = 'NONE';
+                             this.renderGame();
+                             this.updateHUD();
+                             return;
+                         }
                      }
                 }
                 // If invalid move, DO NOT fall through to selection logic.
@@ -1491,6 +1511,7 @@ const gameApp = {
             this.checkTurnNotification();
         }
         if (action.type === 'BUY_UNIT') {
+             const player = newState.players.find(p => p.id === newState.players[newState.currentPlayerIndex].id); // Refresh ref
              let spawned = false;
              const cost = UNITS[action.unitType].cost;
              let actualCost = cost;
@@ -1498,58 +1519,55 @@ const gameApp = {
              if (player.faction === 'MARITIME_MERCHANTS' && action.unitType.includes('BOAT')) actualCost -= 1;
              if (player.faction === 'ORDER_OF_KNIGHTS' && action.unitType === 'KNIGHT') actualCost -= 1;
              
-             if (player.gold >= actualCost) {
-                 // Find valid spawn point (Capital/Fort/Dock or adjacent)
+             // Find specific structure at action.at
+             let structureTile = null;
+             if (action.at) {
+                 structureTile = newState.map[action.at.y][action.at.x];
+             }
+             
+             // Verification
+             if (player.gold >= actualCost && structureTile && structureTile.structure && structureTile.ownerId === player.id && !structureTile.structure.hasProduced) {
+                 
+                 // Spawn Logic specific to this structure
                  const spawnCandidates = [];
-                 // 1. Find all owned structures that can spawn this type
-                 for(let r=0; r<MAP_SIZE; r++) {
-                     for(let c=0; c<MAP_SIZE; c++) {
-                         const t = newState.map[r][c];
-                         if(t.ownerId === player.id && t.structure) {
+                 const t = structureTile;
                              const isWater = action.unitType.includes('BOAT');
                              const isDock = t.structure.type === 'DOCK';
-                             // Logic: Boats need Docks, Land units need Capital/Fort
-                             // Exception: Can land units spawn at Docks? Usually no. Can boats spawn at Capital? No.
-                             let canSpawn = false;
-                             if (isWater && isDock) canSpawn = true;
-                             if (!isWater && (t.structure.type === 'CAPITAL' || t.structure.type === 'FORT')) canSpawn = true;
-                             
-                             if(canSpawn) {
-                                 // Check structure tile itself
-                                 // if(!t.unit) spawnCandidates.push(t); // Removed preference for structure tile
-                                 
-                                 // Check neighbors first
-                                 const neighbors = [
-                                     {x:c+1,y:r}, {x:c-1,y:r}, {x:c,y:r+1}, {x:c,y:r-1}
-                                 ];
-                                 neighbors.forEach(n => {
-                                     if(n.x>=0 && n.x<MAP_SIZE && n.y>=0 && n.y<MAP_SIZE) {
-                                         const nt = newState.map[n.y][n.x];
-                                         if(!nt.unit && !nt.structure) { // Don't spawn on other structures
-                                             if(isWater && nt.terrain === TERRAIN.WATER) spawnCandidates.push(nt);
-                                             if(!isWater && nt.terrain === TERRAIN.LAND) spawnCandidates.push(nt);
-                                         }
-                                     }
-                                 });
+                 
+                 let canSpawn = false;
+                 if (isWater && isDock) canSpawn = true;
+                 if (!isWater && (t.structure.type === 'CAPITAL' || t.structure.type === 'FORT')) canSpawn = true;
+                 
+                 if(canSpawn) {
+                     const neighbors = [
+                         {x:t.x+1,y:t.y}, {x:t.x-1,y:t.y}, {x:t.x,y:t.y+1}, {x:t.x,y:t.y-1}
+                     ];
+                     neighbors.forEach(n => {
+                         if(n.x>=0 && n.x<MAP_SIZE && n.y>=0 && n.y<MAP_SIZE) {
+                             const nt = newState.map[n.y][n.x];
+                             if(!nt.unit && !nt.structure) { 
+                                 if(isWater && nt.terrain === TERRAIN.WATER) spawnCandidates.push(nt);
+                                 if(!isWater && nt.terrain === TERRAIN.LAND) spawnCandidates.push(nt);
                              }
                          }
-                     }
+                     });
                  }
                  
                  if(spawnCandidates.length > 0) {
-                     // Pick random neighbor to avoid stacking in one direction
-                     // spawnCandidates.sort((a,b) => (a.structure ? -1 : 1));
                      const randIdx = Math.floor(Math.random() * spawnCandidates.length);
-                     const t = spawnCandidates[randIdx];
-                                 t.unit = {
+                     const spawnTile = spawnCandidates[randIdx];
+                     spawnTile.unit = {
                                      id: `u_${Math.random()}`,
                                      type: action.unitType,
                                      ownerId: player.id,
                          hp: 5, maxHp: 5, movesLeft: 0, hasAttacked: true, path: []
                                  };
                                  player.gold -= actualCost;
+                     structureTile.structure.hasProduced = true; // Mark as used
                                  spawned = true;
-                     if(t.terrain === TERRAIN.LAND) t.ownerId = player.id; // Claim tile if spawning outside
+                     if(spawnTile.terrain === TERRAIN.LAND) spawnTile.ownerId = player.id;
+                 } else {
+                     newState.logs.unshift("No space to spawn unit!");
                  }
 
                  if(spawned) newState.logs.unshift(`${player.name} recruited ${action.unitType}`);
@@ -1624,8 +1642,8 @@ const gameApp = {
         this.sendAction({ type: 'END_TURN' });
     },
     
-    buyUnit: function(type) {
-        this.sendAction({ type: 'BUY_UNIT', unitType: type });
+    buyUnit: function(type, x, y) {
+        this.sendAction({ type: 'BUY_UNIT', unitType: type, at: {x, y} });
     },
     
     researchTech: function(techId, cost) {
@@ -1929,8 +1947,27 @@ const gameApp = {
                              if (unlocked) {
                              const btn = document.createElement('button');
                              btn.className = 'action-btn';
-                                 btn.innerText = `Recruit ${UNITS[ut].name} (${UNITS[ut].cost}c)`;
-                             btn.onclick = () => this.buyUnit(ut);
+                                 
+                                 // Cost calculation for display/check
+                                 let actualCost = UNITS[ut].cost;
+                                 if (myPlayer.faction === 'PEASANT_REBELLION' && ut === 'PEASANT') actualCost -= 1;
+                                 if (myPlayer.faction === 'MARITIME_MERCHANTS' && (ut === 'TRADE_BOAT' || ut === 'WAR_BOAT')) actualCost -= 1;
+                                 if (myPlayer.faction === 'ORDER_OF_KNIGHTS' && ut === 'KNIGHT') actualCost -= 1;
+                                 
+                                 btn.innerText = `Recruit ${UNITS[ut].name} (${actualCost}c)`;
+                                 
+                                 let isDisabled = false;
+                                 if (myPlayer.gold < actualCost) isDisabled = true;
+                                 if (tile.structure.hasProduced) isDisabled = true;
+                                 
+                                 if(isDisabled) {
+                                     btn.disabled = true;
+                                     btn.style.opacity = '0.5';
+                                     if (tile.structure.hasProduced) btn.innerText += " (Used)";
+                                 } else {
+                                     btn.onclick = () => this.buyUnit(ut, this.selection.x, this.selection.y);
+                                 }
+                                 
                              actionBtns.appendChild(btn);
                              }
                          });
