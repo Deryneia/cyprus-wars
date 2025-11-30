@@ -428,7 +428,7 @@
  * CONSTANTS & CONFIG
  */
 const TILE_SIZE = 64; 
-const MAP_SIZE = 18;
+const MAP_SIZE = 28;
 const TURN_TIME = 45; 
 
 const FACTION_INFO = {
@@ -448,10 +448,10 @@ const TERRAIN = {
 };
 
 const UNITS = {
-    PEASANT: { name: "Peasant", cost: 2, atk: 1, def: 1, range: 1, move: 1, sym: "♟️" },
+    PEASANT: { name: "Peasant", cost: 2, atk: 1, def: 1, range: 1, move: 1, sym: "🔱" },
     ARCHER: { name: "Archer", cost: 3, atk: 1, def: 1, range: 2, move: 1, sym: "🏹" },
-    KNIGHT: { name: "Knight", cost: 4, atk: 1, def: 2, range: 1, move: 3, sym: "♞" }, // Requires Iron
-    CATAPULT: { name: "Catapult", cost: 5, atk: 1, def: 5, range: 3, move: 1, sym: "☄️" },
+    KNIGHT: { name: "Knight", cost: 4, atk: 1, def: 2, range: 1, move: 3, sym: "🐎" }, // Requires Iron
+    CATAPULT: { name: "Catapult", cost: 5, atk: 1, def: 5, range: 3, move: 1, sym: "🏗️" },
     TRADE_BOAT: { name: "Trade Boat", cost: 5, atk: 0, def: 1, range: 0, move: 1, sym: "⛵" },
     WAR_BOAT: { name: "War Boat", cost: 10, atk: 2, def: 1, range: 1, move: 1, sym: "🛶" }
 };
@@ -535,22 +535,62 @@ class GameEngine {
                 }
             }
         } else if (type === 'CYPRUS') {
-            const cx = MAP_SIZE / 2;
+            // Detailed Cyprus Shape Approximation
+            const cx = MAP_SIZE / 2; 
             const cy = MAP_SIZE / 2;
+
             for (let y = 0; y < MAP_SIZE; y++) {
                 for (let x = 0; x < MAP_SIZE; x++) {
-                    const dx = (x - cx) * 1.2;
-                    const dy = (y - cy) * 2.0;
-                    if (Math.sqrt(dx*dx + dy*dy) < 7) {
+                    // Normalize coordinates to 0-1 roughly relative to map center
+                    // Main Body (Oval-ish)
+                    // x: 4 to 20, y: 10 to 22
+                    const dx = (x - 11);
+                    const dy = (y - 16);
+                    const distMain = (dx * dx) / 60 + (dy * dy) / 25;
+                    
+                    // Karpas Peninsula (Long tail top-right)
+                    // Starts around x=16, y=12 going to x=26, y=6
+                    // Simple line check with thickness
+                    // Line eq: y = -0.6x + 22
+                    const karpasX = x - 16;
+                    const karpasY = y - 12;
+                    // Rotate coords for rectangle check
+                    // A bit hacky, just use point distance to line segment
+                    // Segment from (15, 13) to (26, 6)
+                    const px = x, py = y;
+                    const x1=15, y1=13, x2=26, y2=6;
+                    const A = px - x1, B = py - y1, C = x2 - x1, D = y2 - y1;
+                    const dot = A * C + B * D;
+                    const len_sq = C * C + D * D;
+                    let param = -1;
+                    if (len_sq !== 0) param = dot / len_sq;
+                    let xx, yy;
+                    if (param < 0) { xx = x1; yy = y1; }
+                    else if (param > 1) { xx = x2; yy = y2; }
+                    else { xx = x1 + param * C; yy = y1 + param * D; }
+                    const distToKarpas = Math.sqrt((px - xx) * (px - xx) + (py - yy) * (py - yy));
+                    
+                    let isLand = false;
+
+                    if (distMain <= 1.2) isLand = true;
+                    if (distToKarpas < 1.3) isLand = true; // Thickness of peninsula
+
+                    // Akrotiri (Limassol Salt Lake bump)
+                    if (Math.sqrt(Math.pow(x - 11, 2) + Math.pow(y - 23, 2)) < 1.5) isLand = true;
+
+                    if (isLand) {
                         map[y][x].terrain = TERRAIN.LAND;
-                        if (Math.abs(x - cx) < 2 && Math.abs(y - cy) < 1.5) {
+                        
+                        // Troodos Mountains (Center-West)
+                        if (Math.sqrt(Math.pow(x - 9, 2) + Math.pow(y - 16, 2)) < 2.5) {
+                            map[y][x].terrain = TERRAIN.MOUNTAIN;
+                        }
+                        // Kyrenia Range (North Ridge)
+                        if (x >= 6 && x <= 20 && Math.abs(y - 11 - (x-10)*0.1) < 0.8) {
                             map[y][x].terrain = TERRAIN.MOUNTAIN;
                         }
                     }
                 }
-            }
-            for(let x = 14; x < 17; x++) {
-                if(map[3] && map[3][x]) map[3][x].terrain = TERRAIN.LAND;
             }
         } else {
             for (let y = 0; y < MAP_SIZE; y++) {
